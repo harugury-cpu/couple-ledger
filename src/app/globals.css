@@ -1,0 +1,347 @@
+@import './tokens.css';
+
+/* 시트 화면: 쓰던 Numbers 가계부와 같은 구성(줄 순서·구역 띠·병합 칸)을 지키고,
+   톤은 DESIGN-mastercard.md 를 따른다: 크림 바탕, 잉크 머리줄, pill 버튼. */
+:root {
+  --grid: var(--hairline);
+  --band-blue: #e4ecf8;     /* 가변생활비 띠, 바로 쓸 수 있는 돈 */
+  --band-blue-fg: #2c4e9e;
+  --band-yellow: #fbefcb;   /* 저축 띠, 저축·투자 */
+  --band-yellow-fg: #7a5800;
+  --band-peach: #fbe9e3;    /* 수입 줄, 예산 열, 사용 열 */
+  --zebra: #faf8f6;
+  --total: var(--canvas);
+  --row-h: 26px;
+  --radius-table: var(--radius-button);
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; font-size: 13px; background: var(--canvas); }
+main { max-width: 980px; margin: 0 auto; padding: 24px 16px 48px; }
+/* 12개월 표가 있는 예산 화면만 조금 넓게 */
+main.wide { max-width: 1160px; }
+h1 { font-size: 16px; font-weight: 500; letter-spacing: -.02em; margin: 0; white-space: nowrap; }
+h2 { font-size: 28px; font-weight: 500; letter-spacing: -.02em; line-height: 1; margin: 0; white-space: nowrap; }
+/* 작은 제목: 점 + 굵은 글자 + 넓은 자간 */
+h3 { font-size: 12px; font-weight: 700; letter-spacing: .04em; margin: 0 0 10px; display: flex; align-items: center; gap: 7px; }
+h3::before, .band th::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--signal); flex: none; }
+p { margin: 0 0 8px; }
+
+button, input, select { font: inherit; color: inherit; }
+button {
+  background: var(--white); border: 1.5px solid var(--ink); border-radius: var(--radius-button);
+  padding: 3px 16px; min-height: 32px; cursor: pointer; white-space: nowrap; letter-spacing: -.02em;
+  transition: transform 120ms ease-out;
+}
+button:active:not(:disabled) { transform: scale(.97); }
+button:disabled, input:disabled, select:disabled { opacity: .55; cursor: wait; }
+:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+.primary { background: var(--ink); color: var(--canvas); font-weight: 500; }
+.danger { color: var(--clay); border-color: var(--clay); }
+.muted, .table-note { color: var(--slate); }
+.minus { color: var(--signal); }
+.table-note { font-size: 11px; margin: 10px 4px 0; }
+
+/* 맨 위: 떠 있는 흰 pill 안에 제목 · 연도 · 시트 탭 */
+.topbar {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 8px 12px 8px 24px; background: var(--white); border-radius: var(--radius-pill); box-shadow: var(--shadow-nav);
+  position: relative;
+}
+.year-control, .month-step { display: flex; align-items: center; gap: 6px; }
+.year-control strong, .month-step strong { font-weight: 500; letter-spacing: -.02em; }
+.year-control button, .month-step button { width: 28px; min-height: 28px; padding: 0; border-width: 1px; border-radius: 50%; font-size: 15px; line-height: 1; }
+.sheet-nav { display: flex; align-items: center; gap: 1px; flex-wrap: wrap; }
+.sheet-nav button { border: 0; background: transparent; padding: 3px 10px; min-height: 30px; font-weight: 500; letter-spacing: -.03em; border-radius: var(--radius-pill); }
+.sheet-nav button[aria-current] { background: var(--ink); color: var(--canvas); }
+.nav-gap { width: 10px; }
+/* 저장 알림: pill 높이를 건드리지 않게 pill 바로 아래 오른쪽에 띄운다 */
+.feedback { position: absolute; right: 24px; top: calc(100% + 5px); font-size: 11px; color: var(--slate); }
+.error { margin-top: 12px; padding: 10px 12px 10px 20px; border-radius: var(--radius-button); background: var(--signal-soft); color: var(--clay); display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.error div { display: flex; gap: 6px; }
+
+/* 달 제목 · 요약 · 빠른 입력 */
+.month-bar { display: flex; align-items: center; gap: 8px 10px; padding: 24px 0 10px; flex-wrap: wrap; }
+.month-bar h2 { margin-right: 6px; }
+.month-summary { display: flex; align-items: baseline; gap: 6px; margin: 0; font-variant-numeric: tabular-nums; flex-wrap: wrap; }
+.month-summary > div { display: flex; align-items: baseline; gap: 6px; padding: 6px 14px; border-radius: var(--radius-pill); background: var(--white); }
+.month-summary dt { font-size: 11px; color: var(--slate); }
+.month-summary dd { margin: 0; font-weight: 500; }
+.month-summary dd span { font-weight: 450; font-size: 11px; color: var(--slate); }
+.month-summary .lead { background: var(--ink); color: var(--canvas); }
+.month-summary .lead dt { color: var(--dust); }
+.month-summary .lead dd { font-size: 15px; letter-spacing: -.02em; }
+.month-summary .lead .minus { color: var(--signal-light); }
+.quick-form { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 260px; margin: 0; }
+.quick-form label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.quick-form input { flex: 1; min-width: 100px; height: 32px; border: 1px solid var(--outline-soft); border-radius: var(--radius-pill); background: var(--white); padding: 0 16px; }
+.candidate-list { padding: 4px 0 8px; }
+.candidate-list button { margin: 0 6px 6px 0; }
+
+/* 명세서 캡처: 읽기 전 검토하는 흰 패널 */
+.capture-panel { margin: 0 0 10px; padding: 18px 20px; border-radius: var(--radius-button); background: var(--white); }
+.capture-heading, .capture-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.capture-heading { justify-content: space-between; margin-bottom: 10px; }
+.capture-heading h3 { margin: 0; }
+.capture-heading button, .capture-actions button { min-height: 30px; padding: 2px 14px; font-size: 12px; border-width: 1px; }
+.capture-start p, .capture-status { margin: 0 0 10px; color: var(--slate); font-size: 12px; }
+.capture-choose { position: relative; overflow: hidden; cursor: pointer; }
+.capture-choose input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.capture-list { list-style: none; padding: 0; margin: 0 0 12px; border-top: 1px solid var(--hairline-canvas); }
+.capture-item { display: grid; grid-template-columns: minmax(0, 1fr) 120px minmax(150px, 1fr); gap: 7px 10px; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--hairline-canvas); }
+.capture-item.is-duplicate { opacity: .48; }
+.capture-main { min-width: 0; display: flex; flex-direction: row; align-items: center; gap: 7px; color: var(--ink); font-size: 13px; }
+.capture-main input, .capture-remember input { width: auto; height: auto; accent-color: var(--ink); }
+.capture-merchant { min-width: 0; display: flex; align-items: baseline; gap: 6px; }
+.capture-merchant strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.capture-merchant small, .capture-raw { color: var(--slate); font-size: 11px; }
+.capture-amount { width: 100%; min-width: 0; height: 32px; padding: 0 10px; border: 1px solid var(--outline-soft); border-radius: var(--radius-pill); background: var(--white); text-align: right; font-variant-numeric: tabular-nums; }
+.capture-line { width: 100%; min-width: 0; height: 32px; padding: 0 10px; border: 1px solid var(--outline-soft); border-radius: var(--radius-pill); background: var(--white); text-overflow: ellipsis; }
+.capture-remember { grid-column: 1 / -1; flex-direction: row; align-items: center; color: var(--slate); font-size: 11px; }
+.capture-raw { grid-column: 1 / -1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.capture-error { margin: 0 0 10px; color: var(--clay); font-size: 12px; }
+.capture-actions { margin-top: 12px; }
+
+/* 카드 알림: 캡처 맞춰보기와 같은 패널 안에서 원문과 고칠 값을 나란히 본다. */
+.notification-item { padding: 14px 0; border-bottom: 1px solid var(--hairline-canvas); min-width: 0; }
+.notification-meta { display: flex; align-items: baseline; gap: 6px 12px; flex-wrap: wrap; margin-bottom: 8px; overflow-wrap: anywhere; }
+.notification-meta strong { font-weight: 500; }
+.notification-meta small { color: var(--slate); font-size: 11px; }
+.notification-raw { font: inherit; font-size: 12px; color: var(--slate); white-space: pre-wrap; overflow-wrap: anywhere; margin: 0 0 12px; max-width: 75ch; }
+.notification-fields { margin: 0; padding: 0; border: 0; min-width: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 12px; }
+.notification-fields label { min-width: 0; }
+.notification-fields input, .notification-fields select { width: 100%; min-width: 0; height: 36px; padding: 0 10px; border: 1px solid var(--outline-soft); border-radius: var(--radius-pill); background: var(--white); }
+.notification-fields .capture-remember { grid-column: 1 / -1; }
+.notification-fields .capture-remember input { width: auto; height: auto; }
+.notification-line { grid-column: 1 / -1; }
+.notification-history summary { cursor: pointer; font-weight: 500; padding: 12px 0; }
+.payment-notify-summary { display: block; overflow-wrap: anywhere; }
+.payment-phone-note { display: none; }
+@media (max-width: 700px) {
+  .notification-fields { grid-template-columns: minmax(0, 1fr); }
+  .notification-panel button { min-height: 40px; }
+  .payment-settings .line-form, .payment-settings .payment-desktop-controls { display: none; }
+  .payment-phone-note { display: block; }
+}
+
+/* 계좌별 남은 돈 (폰 전용: PC에서는 표의 병합 칸에 보인다) */
+.account-list { display: none; list-style: none; margin: 0 0 10px; padding: 0; gap: 6px; flex-wrap: wrap; font-variant-numeric: tabular-nums; }
+.account-list li { display: flex; align-items: baseline; gap: 5px; padding: 4px 12px; border-radius: var(--radius-pill); background: var(--white); font-size: 12px; }
+.account-list span { color: var(--slate); }
+.account-list strong { font-weight: 500; }
+.account-list small { color: var(--dust); font-size: 11px; }
+
+/* 격자 표 공통: 크림 위에 놓인 흰 표, 둥근 모서리, 옅은 격자선, 그림자 없음 */
+.sheet, .annual-table, .savings-table, .balance-table {
+  width: 100%; border-collapse: separate; border-spacing: 0; background: var(--white); font-size: 13px; font-variant-numeric: tabular-nums;
+  border-radius: var(--radius-table); overflow: clip;
+}
+.sheet { table-layout: fixed; }
+.sheet th, .sheet td, .annual-table th, .annual-table td, .savings-table th, .savings-table td, .balance-table th, .balance-table td {
+  border: 0; border-right: 1px solid var(--grid); border-bottom: 1px solid var(--grid);
+  height: var(--row-h); padding: 0 8px; text-align: left; font-weight: 450;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* 둥근 모서리에 글자가 닿지 않게 양 끝 칸을 안으로 들인다 */
+.sheet tr > .d:first-child, .sheet tr.band th, .savings-table tr > :first-child, .balance-table tr > :first-child { padding-left: 14px; }
+.annual-table tr > :last-child, .savings-table tr > :last-child, .balance-table tr > :last-child { border-right: 0; padding-right: 14px; }
+/* 월별 표는 병합 칸 때문에 줄마다 마지막 칸이 다르다: 맨 오른쪽 열(남음)에 놓인 칸만 고른다 */
+.sheet tr > .d:last-child { border-right: 0; padding-right: 14px; }
+.sheet tbody tr:last-child > *, .annual-table tfoot tr:last-child > *, .savings-table tfoot tr:last-child > *, .balance-table tfoot tr:last-child > * { border-bottom: 0; }
+/* 머리줄: 잉크 바탕에 크림 글자 */
+.sheet thead th, .annual-table thead th, .savings-table thead th, .balance-table thead th {
+  height: 34px; font-weight: 500; letter-spacing: -.02em; background: var(--ink); color: var(--canvas);
+  border-right-color: rgba(243, 240, 238, .16); border-bottom: 0;
+}
+.num, .numeric { text-align: right !important; }
+.c-pay { width: 104px; } .c-cat { width: 94px; } .c-num { width: 98px; } .c-acc { width: 76px; }
+.sheet .num { padding: 0 6px; }
+.sheet tr > .d.num:last-child { padding-right: 14px; }
+.m { display: none; }
+/* 폰에서 양식 칸은 입력 칸 대신 값만 보인다 */
+.cell-text { display: block; overflow: hidden; text-overflow: ellipsis; }
+
+/* 월별 표: 줄무늬, 구역 색 띠, 수입 줄 */
+.sheet tr.line.odd > * { background: var(--zebra); }
+.sheet tr.line > .merged { background: var(--white); vertical-align: top; padding-top: 4px; white-space: normal; line-height: 1.3; color: var(--slate); }
+.sheet tr.line > .merged.num { padding-top: 2px; }
+.band > * { height: 28px !important; font-weight: 700 !important; letter-spacing: .04em; font-size: 12px; }
+.band th::before { display: inline-block; margin-right: 7px; vertical-align: 1px; background: currentColor; }
+.sheet tr.band.variable > * { background: var(--band-blue); color: var(--band-blue-fg); }
+.sheet tr.band.saving > * { background: var(--band-yellow); color: var(--band-yellow-fg); }
+.sheet tr.band th { border-right: 0; overflow: visible; }
+.sheet tr.line.income > * { background: var(--band-peach); }
+.sheet tr.total > * { background: var(--total); font-weight: 700; }
+.sheet tr.total.grand > * { background: var(--white); height: 30px; }
+/* 맨 아래 수입-지출: 머리줄과 짝을 이루는 잉크 줄 */
+.sheet tbody tr.total.grand:last-child > * { background: var(--ink); color: var(--canvas); border-right-color: rgba(243, 240, 238, .16); }
+.sheet tbody tr.total.grand:last-child > * { font-size: 14px; height: 36px; }
+.sheet tbody tr.total.grand:last-child .minus, .annual-table tfoot tr:last-child .minus { color: var(--signal-light); }
+.sheet tr.line > .remaining { font-weight: 700; color: var(--ink); }
+.sheet tr.line > .remaining.zero { color: var(--dust); font-weight: 450; }
+.sheet tr.line > .remaining.minus { color: var(--signal); }
+.sheet tr.editing th.name, .balance-table tr.editing th { box-shadow: inset 0 0 0 2px var(--ink); }
+tfoot th, tfoot td { font-weight: 700 !important; background: var(--total); }
+
+.line-name { border: 0; border-radius: 3px; padding: 0; min-height: 0; height: 22px; background: transparent; font-weight: inherit; letter-spacing: 0; text-align: left; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.line-name:hover { text-decoration: underline; text-underline-offset: 3px; }
+.line-name:active:not(:disabled) { transform: none; }
+/* 줄 삭제: 줄에 올리거나 키보드로 닿았을 때만 이름 칸 오른쪽에 보인다 */
+.sheet th.name { position: relative; }
+.line-delete { position: absolute; right: 4px; top: 50%; translate: 0 -50%; width: 20px; min-height: 20px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--slate); font-size: 15px; line-height: 1; opacity: 0; }
+.sheet tr.line:hover .line-delete, .line-delete:focus-visible { opacity: 1; }
+.line-delete:hover:not(:disabled) { background: var(--signal-soft); color: var(--clay); }
+/* 손가락으로 쓰는 화면에는 올리기가 없으므로 흐리게 늘 보인다 */
+@media (hover: none) { .line-delete { opacity: .45; } }
+.merged .line-name { white-space: normal; height: auto; color: var(--slate); }
+.line-meta { margin-left: 6px; font-size: 11px; color: var(--slate); }
+.adjusted { display: block; font-size: 10px; color: var(--slate); line-height: 1.2; padding-bottom: 2px; }
+.money-input { width: 100%; min-width: 0; height: 22px; padding: 0 1px; border: 1px solid transparent; border-radius: var(--radius-tiny); background: transparent; text-align: right; font-variant-numeric: tabular-nums; }
+.money-input:hover { border-color: var(--dust); }
+.money-input:focus { border-color: var(--ink); background: var(--white); outline: 0; }
+.money-input.is-empty, .money-input::placeholder { color: var(--dust); }
+/* 글자 칸(이체 계좌)과 고르는 칸(카테고리): 금액 칸과 같은 방식. 테두리가 글자 자리를 밀지 않게 칸 여백 쪽으로 넓힌다. */
+.text-input, .cell-select { width: calc(100% + 10px); min-width: 0; height: 22px; margin: 0 -5px; padding: 0 4px; border: 1px solid transparent; border-radius: var(--radius-tiny); background: transparent; text-overflow: ellipsis; }
+.cell-select { appearance: none; cursor: pointer; }
+/* 목록에서 고를 수 있는 글자 칸(수단·이체 계좌): 브라우저가 넣는 화살표가 글자 자리를 차지하지 않게 한다 */
+.text-input::-webkit-calendar-picker-indicator { display: none !important; }
+.text-input:hover:not(:disabled), .cell-select:hover:not(:disabled) { border-color: var(--dust); }
+.text-input:focus, .cell-select:focus { border-color: var(--ink); background: var(--white); outline: 0; }
+.cell-select.is-empty { color: var(--dust); }
+.cell-select:disabled, .text-input:disabled { opacity: 1; }
+/* 수입 줄은 보통 카테고리가 없다: 빈 표시는 올리거나 누를 때만 보인다 */
+.sheet tr.line.income .cell-select.is-empty:not(:hover):not(:focus) { color: transparent; }
+/* 병합 칸은 글자가 위쪽에 붙는다: 옆 칸 글자와 높이를 맞춘다 */
+.sheet .merged .text-input { margin-top: -2px; }
+/* 구역 맨 아래의 빈 줄: 쓰기 전에는 '+ 행'만 흐리게 보이고, 칸은 올리거나 누르면 드러난다 */
+.new-line::placeholder { color: var(--dust); opacity: .55; transition: opacity 120ms ease-out; }
+.new-line:hover::placeholder, .new-line:focus::placeholder { opacity: 1; }
+.sheet tr.add-row .money-input:not(:hover):not(:focus)::placeholder, .sheet tr.add-row .cell-select.is-empty:not(:hover):not(:focus) { color: transparent; }
+.add-row.needs-name .new-line::placeholder { color: var(--signal); opacity: 1; }
+.sheet tr.line.income .money-input.is-empty, .sheet tr.line.income .money-input::placeholder { color: rgba(20, 20, 19, .45); }
+
+/* 줄 추가·수정, 특별 지출, 설정 폼: 흰 종이 한 장 */
+.edit-panel, .special-panel form { margin: 0 0 10px; padding: 18px 20px; border-radius: var(--radius-button); background: var(--white); }
+.edit-panel h3 { gap: 7px; }
+.edit-panel .move { display: flex; gap: 4px; margin-left: 6px; }
+.form-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+label { display: flex; flex-direction: column; gap: 4px; color: var(--slate); font-size: 11px; }
+label input, label select { width: 100%; min-width: 0; height: 32px; border: 1px solid var(--outline-soft); border-radius: var(--radius-pill); background: var(--white); padding: 0 14px; color: var(--ink); font-size: 13px; }
+.capture-panel label.capture-main, .capture-panel label.capture-remember, .capture-panel label.capture-choose { display: flex; flex-direction: row; }
+.capture-panel label.capture-main { align-items: center; }
+.capture-panel label.capture-remember { align-items: center; }
+.capture-panel label.capture-choose { align-items: center; }
+.check { flex-direction: row; align-items: center; gap: 6px; margin-top: 10px; font-size: 12px; }
+.check input { width: auto; height: auto; accent-color: var(--ink); }
+.actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
+.special-panel { margin: 0 0 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.special-panel form { flex-basis: 100%; margin: 0; }
+.special-question { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--slate); }
+.special-question p { margin: 0; }
+.special-question .actions { margin: 0; }
+/* 줄 안의 작은 버튼: 같은 pill, 가는 테두리 */
+.special-panel > button, .special-question button, .special-list button, .settings-list button, .edit-panel .move button {
+  min-height: 26px; padding: 1px 12px; font-size: 12px; border-width: 1px; border-color: var(--outline-soft); color: var(--ink);
+}
+.special-list button.danger, .settings-list button.danger { color: var(--clay); }
+.special-list { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 6px; }
+.special-list > div { display: flex; align-items: center; gap: 8px; padding: 3px 4px 3px 14px; border-radius: var(--radius-pill); background: var(--white); font-size: 12px; }
+.special-list small { color: var(--slate); margin-left: 4px; }
+
+/* 예산 · 저축 */
+.section-heading { display: flex; align-items: baseline; gap: 12px; padding: 24px 0 12px; }
+.section-heading > div { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+.section-heading p { margin: 0; font-size: 12px; }
+.table-scroll { width: 100%; overflow-x: auto; border-radius: var(--radius-table); }
+.annual-table th, .annual-table td { padding: 0 4px; font-size: 12px; }
+.annual-table th:first-child { position: sticky; left: 0; z-index: 1; min-width: 80px; padding-left: 14px; }
+.annual-table tbody th:first-child { background: var(--white); }
+.annual-table tbody tr:nth-child(even) > * { background: var(--zebra); }
+.annual-table tr > td.budget-col { background: var(--band-peach); }
+.annual-table tfoot tr:last-child > * { background: var(--ink); color: var(--canvas); border-right-color: rgba(243, 240, 238, .16); }
+.annual-table thead th.selected-month { background: var(--signal-light); color: var(--ink); }
+.charts { display: grid; grid-template-columns: 1fr 2fr; gap: 12px; margin: 0 0 24px; }
+.charts section, .savings-chart { background: var(--white); border-radius: var(--radius-frame); padding: 24px 24px 12px; }
+.table-title { margin: 0 4px 10px; }
+.charts section { min-width: 0; }
+.chart { height: 300px; width: 100%; min-width: 0; }
+.empty-chart { color: var(--slate); padding: 24px 0; }
+.opening-row { display: flex; align-items: center; gap: 8px; padding: 0 0 10px; }
+.opening-row label { flex-direction: row; font-size: 12px; }
+.opening-row .money-input { width: 150px; height: 32px; border-color: var(--outline-soft); border-radius: var(--radius-pill); background: var(--white); padding: 0 14px; }
+.savings-table, .savings-scroll { max-width: 880px; }
+.savings-table tbody th { background: var(--total); font-weight: 500; text-align: right; }
+.savings-table td.use-col { background: var(--band-peach); }
+.savings-table td small { margin-left: 6px; font-size: 10px; color: var(--slate); }
+.savings-chart { margin-top: 16px; max-width: 880px; }
+
+/* 잔액: 묶음마다 색 띠(저축·투자는 월별 표의 저축 띠와 같은 노랑), 그 아래 계좌 줄 */
+.balance-table, .balance-panel { max-width: 880px; }
+.balance-table .c-bal { width: 150px; } .balance-table .c-chg { width: 170px; } .balance-table .c-goal { width: 170px; }
+.balance-table tr.band.ready > * { background: var(--band-blue); color: var(--band-blue-fg); }
+.balance-table tr.band.reserved > * { background: var(--total); }
+.balance-table tr.band.invest > * { background: var(--band-yellow); color: var(--band-yellow-fg); }
+.balance-table td small { margin-left: 6px; font-size: 10px; color: var(--slate); }
+
+/* 설정 */
+.settings-section { margin-top: 28px; max-width: 880px; }
+.settings-list { list-style: none; padding: 0; margin: 0 0 12px; border-top: 1px solid var(--hairline-canvas); }
+.settings-list li { min-height: 38px; padding: 4px 0; border-bottom: 1px solid var(--hairline-canvas); display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.settings-list small { margin-left: 8px; color: var(--slate); font-size: 11px; }
+.settings-list li > div { display: flex; gap: 4px; }
+.inline-form { display: flex; flex-wrap: wrap; gap: 6px; width: 100%; }
+.inline-form input { flex: 1; min-width: 120px; height: 32px; border: 1px solid var(--outline-soft); border-radius: var(--radius-pill); padding: 0 14px; background: var(--white); }
+.button-link { display: inline-flex; align-items: center; min-height: 32px; padding: 3px 16px; border-radius: var(--radius-button); border: 1.5px solid var(--ink); background: var(--white); color: var(--ink); text-decoration: none; letter-spacing: -.02em; }
+.file-label { margin-top: 14px; max-width: 430px; }
+.file-label input { padding: 5px 14px; height: auto; border-radius: var(--radius-button); }
+.backup-result code { display: block; overflow-wrap: anywhere; padding-top: 6px; }
+.restore-preview { margin-top: 14px; padding: 12px 0; border-top: 1px solid var(--hairline-canvas); }
+
+/* 폰: 월별 표는 PC와 같은 8열. 항목 열을 고정하고 옆으로 밀어 본다. 손가락으로 누르기 좋은 높이 */
+@media (max-width: 700px) {
+  :root { --row-h: 36px; }
+  .m { display: inline; } .pc { display: none; }
+  main { padding: 12px 10px 40px; }
+  .balance-table .d { display: none; }
+  .topbar { border-radius: 28px; padding: 12px 10px 8px 16px; gap: 6px 10px; }
+  .account-list { display: flex; }
+  .balance-table .c-bal { width: 112px; } .balance-table .c-chg { width: 118px; }
+  .balance-table td small { display: block; margin: 0; line-height: 1.1; }
+  .c-num { width: 104px; }
+  /* 월별 표: 열 폭 합 696px. 처음에는 수단 열만큼 밀린 채로 열려 항목 · 카테고리 · 예산 · 금액(364px)이 한 화면에 든다.
+     금액·남음 열은 −2,706,457 같은 7자리 음수가 잘리지 않는 폭 */
+  .sheet-scroll { overflow-x: auto; border-radius: var(--radius-table); overscroll-behavior-x: contain; }
+  .sheet { width: 696px; }
+  .sheet .c-pay { width: 84px; } .sheet .name { width: 116px; } .sheet .c-cat { width: 72px; } .sheet .c-num { width: 84px; } .sheet .c-acc { width: 72px; }
+  .sheet thead th:nth-child(5), .sheet thead th:nth-child(8) { width: 92px; }
+  .sheet th.name { position: sticky; left: 0; z-index: 1; }
+  .sheet :where(th.name) { background: var(--white); }
+  .sheet tr.band th { position: sticky; left: 0; z-index: 1; padding-left: 10px; }
+  .money-input, .line-name, .text-input { height: 30px; }
+  .feedback { display: none; }
+  .sheet-nav { margin-left: -8px; }
+  .sheet-nav button { min-height: 32px; padding: 3px 9px; }
+  .month-bar { padding-top: 18px; }
+  h2 { font-size: 24px; }
+  .quick-form { flex-basis: 100%; }
+  .quick-form input, label input, label select, .inline-form input { height: 36px; }
+  .capture-panel { padding: 16px 14px; }
+  .capture-item { grid-template-columns: minmax(0, 1fr) 112px; gap: 6px 8px; }
+  .capture-line { grid-column: 1 / -1; height: 36px; }
+  .capture-amount { height: 36px; }
+  .capture-merchant { display: block; }
+  .capture-merchant small { display: block; line-height: 1.2; }
+  .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .charts { grid-template-columns: 1fr; }
+  .charts section, .savings-chart { border-radius: 28px; padding: 20px 14px 10px; }
+  /* 저축 표: 월과 자산(누적) 열을 고정하고 가운데 열만 옆으로 민다 */
+  .savings-table { min-width: 520px; }
+  .savings-table tr > :first-child { position: sticky; left: 0; z-index: 1; }
+  .savings-table tr > :last-child { position: sticky; right: 0; z-index: 1; }
+  .savings-table tbody tr > :last-child { background: var(--white); }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+/* 공유용 데모(scripts/build-demo-html.mjs) 안내 띠 */
+.demo-banner { max-width: 980px; margin: 16px auto -8px; padding: 10px 16px; font-size: 12px; color: var(--slate); display: flex; gap: 10px; align-items: baseline; }
+.demo-banner strong { color: var(--signal); font-weight: 700; letter-spacing: .04em; white-space: nowrap; }

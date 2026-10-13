@@ -1,0 +1,47 @@
+/* 토큰: DESIGN-mastercard.md 의 색·모서리·그림자 값.
+ * 화면별 쓰임은 DESIGN.md, 구현은 globals.css.
+ */
+
+:root {
+  /* 바탕: 따뜻한 크림 위에 흰 종이 */
+  --canvas: #f3f0ee;
+  --lifted: #fcfbfa;
+  --white: #ffffff;
+
+  /* 글자 */
+  --ink: #141413;
+  --slate: #696969;
+  --dust: #b5afa7;          /* 미입력·0 같은 흐린 글자 (Dust Taupe 를 흰 표 위에서 읽히게 한 단계 진하게) */
+
+  /* 신호색: 마이너스·초과·눈길을 끌 곳에만 */
+  --signal: #cf4500;
+  --signal-light: #f37338;
+  --clay: #9a3a0a;
+  --signal-soft: #fbe6de;
+  --link: #3860be;
+
+  /* 선 */
+  --hairline: #e6e0d8;                      /* 흰 표 안 격자선 */
+  --hairline-canvas: rgba(20, 20, 19, .12); /* 크림 바탕 위 구분선 */
+  --outline-soft: rgba(20, 20, 19, .5);     /* 입력칸·작은 버튼 테두리 */
+
+  /* 모서리: 작게(≤6) · 20~40 · pill 셋 중 하나만 쓴다 */
+  --radius-tiny: 6px;
+  --radius-button: 20px;
+  --radius-frame: 40px;
+  --radius-pill: 999px;
+
+  /* 그림자: 넓고 옅게 */
+  --shadow-nav: rgba(0, 0, 0, .04) 0 4px 24px 0;
+
+  /* MarkForMC 대신 Sofia Sans. 한글은 시스템 고딕으로 넘어간다. */
+  --font: var(--font-sofia), "Apple SD Gothic Neo", "Pretendard", "Noto Sans KR", Arial, sans-serif;
+
+  color: var(--ink);
+  background: var(--canvas);
+  font-family: var(--font);
+  font-weight: 450;
+  font-synthesis: none;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+}
