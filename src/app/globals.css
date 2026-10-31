@@ -72,11 +72,6 @@ button:disabled, input:disabled, select:disabled { opacity: .55; cursor: wait; }
 .month-summary .lead dt { color: var(--dust); }
 .month-summary .lead dd { font-size: 15px; letter-spacing: -.02em; }
 .month-summary .lead .minus { color: var(--signal-light); }
-.quick-form { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 260px; margin: 0; }
-.quick-form label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
-.quick-form input { flex: 1; min-width: 100px; height: 32px; border: 1px solid var(--outline-soft); border-radius: var(--radius-pill); background: var(--white); padding: 0 16px; }
-.candidate-list { padding: 4px 0 8px; }
-.candidate-list button { margin: 0 6px 6px 0; }
 
 /* 명세서 캡처: 읽기 전 검토하는 흰 패널 */
 .capture-panel { margin: 0 0 10px; padding: 18px 20px; border-radius: var(--radius-button); background: var(--white); }
@@ -191,6 +186,23 @@ tfoot th, tfoot td { font-weight: 700 !important; background: var(--total); }
 .line-delete { position: absolute; right: 4px; top: 50%; translate: 0 -50%; width: 20px; min-height: 20px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--slate); font-size: 15px; line-height: 1; opacity: 0; }
 .sheet tr.line:hover .line-delete, .line-delete:focus-visible { opacity: 1; }
 .line-delete:hover:not(:disabled) { background: var(--signal-soft); color: var(--clay); }
+/* 줄 순서 손잡이: 이름 칸 왼쪽 여백에 두고, 줄에 올리거나 키보드로 닿았을 때 보인다. 끌어서 같은 구역 안 다른 자리에 놓는다. */
+.sheet tr.line th.name:has(.line-grip) { padding-left: 18px; }
+.line-grip { position: absolute; left: 3px; top: 50%; translate: 0 -50%; width: 14px; height: 20px; display: grid; place-items: center; border-radius: 3px; color: var(--slate); font-size: 12px; line-height: 1; cursor: grab; opacity: 0; user-select: none; }
+.sheet tr.line:hover .line-grip, .line-grip:focus-visible { opacity: 1; }
+.line-grip:hover { background: var(--grid); }
+.line-grip:focus-visible { outline: 2px solid var(--ink); outline-offset: -1px; }
+.sheet tr.line.dragging > * { opacity: .4; }
+.sheet tr.line.drop-before > * { box-shadow: inset 0 2px 0 var(--ink); }
+.sheet tr.line.drop-after > * { box-shadow: inset 0 -2px 0 var(--ink); }
+/* 여러 숫자 칸 고르기: 고른 칸은 옅게 칠하고, 합계는 화면 아래 가운데에 떠 있다 */
+.sheet [data-picked] { background: rgba(20, 20, 19, .07) !important; box-shadow: inset 0 0 0 1px rgba(20, 20, 19, .35); }
+.sheet [data-picked] .money-input { color: var(--ink); }
+.pick-sum { position: fixed; left: 50%; bottom: 18px; translate: -50% 0; z-index: 20; display: flex; align-items: center; gap: 14px; padding: 8px 10px 8px 16px; border-radius: var(--radius-pill); background: var(--ink); color: var(--canvas); font-size: 13px; font-variant-numeric: tabular-nums; box-shadow: 0 6px 20px rgba(20, 20, 19, .18); }
+.pick-sum strong { font-weight: 700; }
+.pick-sum span { color: rgba(243, 240, 238, .7); }
+.pick-sum button { width: 24px; min-height: 24px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--canvas); font-size: 15px; line-height: 1; }
+.pick-sum button:hover { background: rgba(243, 240, 238, .14); }
 /* 손가락으로 쓰는 화면에는 올리기가 없으므로 흐리게 늘 보인다 */
 @media (hover: none) { .line-delete { opacity: .45; } }
 .merged .line-name { white-space: normal; height: auto; color: var(--slate); }
@@ -221,9 +233,8 @@ tfoot th, tfoot td { font-weight: 700 !important; background: var(--total); }
 .sheet tr.line.income .money-input.is-empty, .sheet tr.line.income .money-input::placeholder { color: rgba(20, 20, 19, .45); }
 
 /* 줄 추가·수정, 특별 지출, 설정 폼: 흰 종이 한 장 */
-.edit-panel, .special-panel form { margin: 0 0 10px; padding: 18px 20px; border-radius: var(--radius-button); background: var(--white); }
+.edit-panel { margin: 0 0 10px; padding: 18px 20px; border-radius: var(--radius-button); background: var(--white); }
 .edit-panel h3 { gap: 7px; }
-.edit-panel .move { display: flex; gap: 4px; margin-left: 6px; }
 .form-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
 label { display: flex; flex-direction: column; gap: 4px; color: var(--slate); font-size: 11px; }
 label input, label select { width: 100%; min-width: 0; height: 32px; border: 1px solid var(--outline-soft); border-radius: var(--radius-pill); background: var(--white); padding: 0 14px; color: var(--ink); font-size: 13px; }
@@ -235,12 +246,8 @@ label input, label select { width: 100%; min-width: 0; height: 32px; border: 1px
 .check input { width: auto; height: auto; accent-color: var(--ink); }
 .actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
 .special-panel { margin: 0 0 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.special-panel form { flex-basis: 100%; margin: 0; }
-.special-question { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--slate); }
-.special-question p { margin: 0; }
-.special-question .actions { margin: 0; }
 /* 줄 안의 작은 버튼: 같은 pill, 가는 테두리 */
-.special-panel > button, .special-question button, .special-list button, .settings-list button, .edit-panel .move button {
+.special-list button, .settings-list button {
   min-height: 26px; padding: 1px 12px; font-size: 12px; border-width: 1px; border-color: var(--outline-soft); color: var(--ink);
 }
 .special-list button.danger, .settings-list button.danger { color: var(--clay); }
@@ -323,8 +330,7 @@ label input, label select { width: 100%; min-width: 0; height: 32px; border: 1px
   .sheet-nav button { min-height: 32px; padding: 3px 9px; }
   .month-bar { padding-top: 18px; }
   h2 { font-size: 24px; }
-  .quick-form { flex-basis: 100%; }
-  .quick-form input, label input, label select, .inline-form input { height: 36px; }
+  label input, label select, .inline-form input { height: 36px; }
   .capture-panel { padding: 16px 14px; }
   .capture-item { grid-template-columns: minmax(0, 1fr) 112px; gap: 6px 8px; }
   .capture-line { grid-column: 1 / -1; height: 36px; }

@@ -290,19 +290,15 @@ export class LedgerCore {
     }
     await this.store.batch(statements);
   }
-  // 같은 구역 안에서 줄을 한 칸 위나 아래로 옮긴다.
-  async moveLine(id: string, direction: 'up' | 'down') {
+  // 같은 구역 안에서 줄을 index 자리(그 줄을 뺀 구역 안 순서)로 옮긴다. 다른 구역 줄의 자리는 그대로다.
+  async moveLine(id: string, index: number) {
     await this.init();
     const line = await this.resolveLine(id);
     const rows = await this.monthRows(line.year, line.month);
-    const section = rows.filter(r => r.section === line.section);
-    const from = section.findIndex(r => r.id === line.id);
-    const to = direction === 'up' ? from - 1 : from + 1;
-    if (to < 0 || to >= section.length) return;
-    const order = [...rows];
-    const a = order.indexOf(section[from]); const b = order.indexOf(section[to]);
-    [order[a], order[b]] = [order[b], order[a]];
-    await this.store.batch(this.resequence(order));
+    const section = rows.filter(r => r.section === line.section && r.id !== line.id);
+    section.splice(Math.max(0, Math.min(index, section.length)), 0, rows.find(r => r.id === line.id)!);
+    let next = 0;
+    await this.store.batch(this.resequence(rows.map(r => r.section === line.section ? section[next++] : r)));
   }
   async deleteLine(id: string, future = false) {
     await this.init();
@@ -529,6 +525,15 @@ export class LedgerCore {
       if (!rows.some(m => m.id === id)) throw new Error('결제수단을 찾을 수 없습니다.');
       await this.store.batch([toStatement(this.db.update(s.paymentMethods).set({ name, kind, owner, ...notification }).where(eq(s.paymentMethods.id, id)))]);
     } else await this.store.batch(this.insert(s.paymentMethods, [{ id: crypto.randomUUID(), name, kind, owner, ...notification }]));
+  }
+  // 이름으로 결제수단을 찾고, 없으면 그 이름으로 만든다. 종류는 이름에 '카드'가 있으면 카드, 아니면 계좌로 두고 설정에서 고친다.
+  async ensurePayment(name: string): Promise<string> {
+    name = nameValue.parse(name); await this.init();
+    const find = async () => (await this.db.select({ id: s.paymentMethods.id }).from(s.paymentMethods).where(eq(s.paymentMethods.name, name)))[0]?.id;
+    const found = await find();
+    if (found) return found;
+    await this.savePayment(name, name.includes('카드') ? 'card' : 'account', '공통');
+    return (await find())!;
   }
   async deletePayment(id: string) {
     await this.init();

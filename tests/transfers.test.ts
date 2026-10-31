@@ -58,15 +58,18 @@ it('묶음에 들어온 줄은 묶음의 마지막 줄 바로 아래로 옮겨�
   expect(fixed[group[2]].name).toBe('가스비');
 });
 
-it('줄을 위아래로 옮기면 같은 구역 안에서만 순서가 바뀐다', async () => {
+it('줄을 끌어 옮기면 같은 구역 안의 그 자리로만 순서가 바뀐다', async () => {
   l = new Ledger(':memory:');
+  const all = async () => (await l.month(2026, 1)).map(r => r.name);
   const names = async () => (await l.month(2026, 1)).filter(r => r.section === 'variable').map(r => r.name);
   const before = await names();
+  const others = (await l.month(2026, 1)).filter(r => r.section !== 'variable').map(r => r.name);
   const second = (await l.month(2026, 1)).find(r => r.name === before[1])!;
-  await l.moveLine(second.id, 'up');
+  await l.moveLine(second.id, 0);
   expect(await names()).toEqual([before[1], before[0], ...before.slice(2)]);
-  await l.moveLine(second.id, 'up');
-  expect((await names())[0]).toBe(before[1]);
+  await l.moveLine(second.id, 999);
+  expect(await names()).toEqual([before[0], ...before.slice(2), before[1]]);
+  expect((await all()).filter(n => !before.includes(n))).toEqual(others);
 });
 
 it('계좌 이름을 비우면 묶음에서 빠지고, 줄이 없는 묶음은 사라진다', async () => {

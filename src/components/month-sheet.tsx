@@ -1,5 +1,5 @@
 'use client';
-import { useLayoutEffect, useRef, useSyncExternalStore } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { Category, PaymentMethod } from '../db/schema';
 import { monthTotals, total, transferRows, type ComputedLine } from '../lib/calculations';
 import { sections, won } from '../lib/labels';
@@ -57,6 +57,41 @@ export function MonthSheet({ lines, transfers, categories, methods, disabled, ed
   const categoryName = new Map(categories.map(c => [c.id, c.name]));
   // 폰에서는 처음에 수단 열만큼 밀어 두어 항목 · 카테고리 · 예산 · 금액이 한 화면에 들어오게 한다. 수단은 오른쪽으로 밀면 보인다.
   const scroller = useRef<HTMLDivElement>(null);
+  // 줄 끌어 옮기기: 끌고 있는 줄과, 놓으면 들어갈 자리(그 구역 안에서 몇 번째 줄 앞인지).
+  const [drag, setDrag] = useState<{ id: string; section: Section } | null>(null);
+  const [drop, setDrop] = useState<number | null>(null);
+  const endDrag = () => { setDrag(null); setDrop(null); };
+  // 숫자 칸 여러 개 고르기(스프레드시트처럼): 끌거나 Shift+클릭은 사각형 범위, ⌘/Ctrl+클릭은 한 칸씩 더하고 뺀다. 고른 칸의 합계를 표 아래에 띄운다.
+  const table = useRef<HTMLTableElement>(null);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const anchor = useRef<HTMLElement | null>(null);
+  const sweeping = useRef(false);
+  const cellValues = new Map<string, number>();
+  // 숫자 칸에 붙이는 표시: 칸 키(줄 id + 열)와 열 번호. 열 번호는 사각형 범위를 잡을 때 쓴다.
+  const pick = (key: string, col: number, value: number | null) => {
+    if (value !== null) cellValues.set(key, value);
+    return { 'data-pick': key, 'data-col': col, 'data-picked': picked.has(key) || undefined };
+  };
+  const cellOf = (target: EventTarget | null) => (target instanceof Element ? target.closest<HTMLElement>('[data-pick]') : null);
+  const range = (a: HTMLElement, b: HTMLElement) => {
+    const rowOf = (el: HTMLElement) => (el.parentElement as HTMLTableRowElement).rowIndex;
+    const [r1, r2] = [rowOf(a), rowOf(b)].sort((x, y) => x - y); const [c1, c2] = [Number(a.dataset.col), Number(b.dataset.col)].sort((x, y) => x - y);
+    return [...table.current!.querySelectorAll<HTMLElement>('[data-pick]')]
+      .filter(el => rowOf(el) >= r1 && rowOf(el) <= r2 && Number(el.dataset.col) >= c1 && Number(el.dataset.col) <= c2).map(el => el.dataset.pick!);
+  };
+  useEffect(() => {
+    const stop = () => { sweeping.current = false; };
+    const clear = (e: Event) => { if (e instanceof KeyboardEvent ? e.key === 'Escape' : !table.current?.contains(e.target as Node)) setPicked(new Set()); };
+    addEventListener('mouseup', stop); addEventListener('keydown', clear); addEventListener('mousedown', clear);
+    return () => { removeEventListener('mouseup', stop); removeEventListener('keydown', clear); removeEventListener('mousedown', clear); };
+  }, []);
+  // 칸 값은 표 줄을 그리면서 모이므로, 합계는 표 다음에 그리는 합계 막대에서 읽는다.
+  const pickedValues = () => [...picked].filter(k => cellValues.has(k)).map(k => cellValues.get(k)!);
+  // 구역 안 from 번째 줄을 at 번째 줄 앞 자리로 옮긴다. 제자리면 보내지 않는다.
+  const moveTo = (group: ComputedLine[], from: number, at: number) => {
+    const index = at > from ? at - 1 : at;
+    if (index !== from && index >= 0 && index < group.length) void perform({ type: 'move', id: group[from].id, index });
+  };
   useLayoutEffect(() => {
     const el = scroller.current;
     if (phone && el) el.scrollLeft = el.querySelector<HTMLElement>('thead .c-pay')?.offsetWidth ?? 0;
@@ -75,11 +110,21 @@ export function MonthSheet({ lines, transfers, categories, methods, disabled, ed
     const group = lines.filter(l => l.section === key);
     const paySpans = mergeSpans(group, samePayment);
     const transferSpans = mergeSpans(group, (anchor, l) => !!l.transfer_key && transferOf.has(l.transfer_key) && l.transfer_key === anchor.transfer_key);
+    const dragging = drag?.section === key ? group.findIndex(g => g.id === drag.id) : -1;
     return group.map((l, i) => {
       const special = l.series_id.startsWith('special:');
+      const movable = !phone && !special && !disabled;
       const transfer = l.transfer_key ? transferOf.get(l.transfer_key) : undefined;
       const meta = [l.one_off ? '이번 달만' : null, special ? '특별 지출' : shortMode[l.input_mode] || null].filter(Boolean).join(' · ');
-      return <tr key={l.id} className={`line ${key} ${i % 2 ? 'odd' : ''} ${editId === l.id ? 'editing' : ''}`}>
+      const dropClass = dragging >= 0 && drop === i ? 'drop-before' : dragging >= 0 && drop === group.length && i === group.length - 1 ? 'drop-after' : '';
+      return <tr key={l.id} className={`line ${key} ${i % 2 ? 'odd' : ''} ${editId === l.id ? 'editing' : ''} ${dragging === i ? 'dragging' : ''} ${dropClass}`}
+        onDragOver={dragging < 0 ? undefined : e => {
+          e.preventDefault(); e.dataTransfer.dropEffect = 'move';
+          const box = e.currentTarget.getBoundingClientRect();
+          const at = e.clientY > box.top + box.height / 2 ? i + 1 : i;
+          setDrop(at === dragging || at === dragging + 1 ? null : at);
+        }}
+        onDrop={dragging < 0 ? undefined : e => { e.preventDefault(); if (drop !== null) moveTo(group, dragging, drop); endDrag(); }}>
         {paySpans[i] > 0 && <td className="d merged" rowSpan={paySpans[i]}>
           {form(paymentLabel(l), <TextCell value={paymentLabel(l)} label={`${l.name} 수단`} list="sheet-methods" disabled={disabled || special} onSave={text => {
             // 병합된 칸은 값이 하나다: 묶인 줄 전부를 같이 바꾼다. 윗줄과 같은 값을 적으면 그 줄과 병합된다.
@@ -88,6 +133,17 @@ export function MonthSheet({ lines, transfers, categories, methods, disabled, ed
           }} />)}
         </td>}
         <th scope="row" className="name" title={l.name}>
+          {movable && <span className="line-grip" role="button" tabIndex={0} draggable aria-label={`${l.name} 순서 옮기기 (끌거나 위·아래 화살표)`} title="끌어서 순서 옮기기"
+            onDragStart={e => {
+              e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', l.id);
+              const row = e.currentTarget.closest('tr'); if (row) e.dataTransfer.setDragImage(row, 24, row.offsetHeight / 2);
+              setDrag({ id: l.id, section: key });
+            }}
+            onDragEnd={endDrag}
+            onKeyDown={e => {
+              if (e.key === 'ArrowUp') { e.preventDefault(); moveTo(group, i, i - 1); }
+              if (e.key === 'ArrowDown') { e.preventDefault(); moveTo(group, i, i + 2); }
+            }}>⠿</span>}
           {form(l.name, <button className="line-name" disabled={disabled || special} aria-label={`${l.name} 항목 수정`} onClick={() => onEdit(l.id)}>{l.name}</button>)}
           {meta && <span className="line-meta">{meta}</span>}
           {!special && !phone && <button className="line-delete" disabled={disabled} aria-label={`${l.name} 줄 삭제`} title="줄 삭제" onClick={() => {
@@ -100,12 +156,12 @@ export function MonthSheet({ lines, transfers, categories, methods, disabled, ed
             <option value="">—</option>{categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>)}
         </td>
-        <td className="num" title={l.effectiveBudget !== l.budget ? `특별 지출 조정 후 ${won(l.effectiveBudget)}` : undefined}>
+        <td className="num" {...pick(`${l.id}:b`, 0, l.budget)} title={l.effectiveBudget !== l.budget ? `특별 지출 조정 후 ${won(l.effectiveBudget)}` : undefined}>
           {form(won(l.budget), <MoneyCell value={l.budget} label={`${l.name} 기본 예산`} disabled={disabled || special} onError={onError}
             onSave={amount => { void perform({ type: 'budget', id: l.id, amount: amount ?? 0, future: applyFuture(l.series_id) }); }} />)}
           {l.effectiveBudget !== l.budget && <small className="adjusted">조정 후 {won(l.effectiveBudget)}</small>}
         </td>
-        <td className="num">
+        <td className="num" {...pick(`${l.id}:a`, 1, l.hasEntry ? l.actual : null)}>
           <MoneyCell value={l.hasEntry ? l.actual : null} signed label={`${l.name} 금액`} disabled={disabled || special} onError={onError}
             onSave={amount => { void perform({ type: 'amount', id: l.id, amount }); }} />
         </td>
@@ -115,11 +171,11 @@ export function MonthSheet({ lines, transfers, categories, methods, disabled, ed
               {form(transfer.account, <TextCell value={transfer.account} label={`${transfer.account} 이체 계좌 이름`} disabled={disabled}
                 onSave={account => { if (account) void perform({ type: 'transfer', id: transfer.id, account }); }} />)}
             </td>
-            <td className="d num merged" rowSpan={transferSpans[i]}>
+            <td className="d num merged" rowSpan={transferSpans[i]} {...pick(`${transfer.id}:t`, 2, transfer.amount)}>
               {form(won(transfer.amount), <MoneyCell value={transfer.amount} label={`${transfer.account} 이체 금액`} disabled={disabled} onError={onError}
                 onSave={amount => { void perform({ type: 'transfer', id: transfer.id, amount: amount ?? 0 }); }} />)}
             </td>
-            <td className={`d num merged remaining ${transfer.remaining < 0 ? 'minus' : transfer.remaining === 0 ? 'zero' : ''}`} rowSpan={transferSpans[i]} title={`이체 ${won(transfer.amount)} − 쓴 돈 ${won(transfer.spent)}`}>{won(transfer.remaining)}</td>
+            <td className={`d num merged remaining ${transfer.remaining < 0 ? 'minus' : transfer.remaining === 0 ? 'zero' : ''}`} rowSpan={transferSpans[i]} {...pick(`${transfer.id}:r`, 3, transfer.remaining)} title={`이체 ${won(transfer.amount)} − 쓴 돈 ${won(transfer.spent)}`}>{won(transfer.remaining)}</td>
           </>
           : <>
             <td className="d">
@@ -162,7 +218,27 @@ export function MonthSheet({ lines, transfers, categories, methods, disabled, ed
     </ul>}
     <datalist id="sheet-methods">{methods.map(m => <option key={m.id} value={m.name} />)}</datalist>
     <datalist id="sheet-accounts">{transfers.map(t => <option key={t.id} value={t.account} />)}</datalist>
-    <div className="sheet-scroll" ref={scroller}><table className="sheet">
+    <div className="sheet-scroll" ref={scroller}><table className="sheet" ref={table}
+      onMouseDown={phone ? undefined : e => {
+        const cell = cellOf(e.target);
+        if (!cell || e.button !== 0) { setPicked(new Set()); return; }
+        const key = cell.dataset.pick!;
+        if ((e.shiftKey && anchor.current) || e.metaKey || e.ctrlKey) {
+          e.preventDefault(); (document.activeElement as HTMLElement | null)?.blur();
+          if (e.shiftKey && anchor.current) setPicked(new Set(range(anchor.current, cell)));
+          else { const next = new Set(picked.size ? picked : anchor.current ? [anchor.current.dataset.pick!] : []); if (next.has(key)) next.delete(key); else next.add(key); setPicked(next); anchor.current = cell; }
+          return;
+        }
+        anchor.current = cell; sweeping.current = true; setPicked(new Set());
+      }}
+      onMouseOver={phone ? undefined : e => {
+        const cell = cellOf(e.target);
+        if (!sweeping.current || !cell || !anchor.current || (e.buttons & 1) === 0) return;
+        if (cell === anchor.current && picked.size === 0) return;
+        // 다른 칸으로 끌기 시작하면 고르기로 바뀐다: 입력 중이던 칸은 놓는다.
+        (document.activeElement as HTMLElement | null)?.blur(); getSelection()?.removeAllRanges();
+        setPicked(new Set(range(anchor.current, cell)));
+      }}>
       <thead><tr>
         <th className="d c-pay"><span className="pc">고정생활비</span><span className="m">수단</span></th><th className="name"><span className="m">고정생활비</span></th><th className="d c-cat">카테고리</th>
         <th className="num c-num">예산</th><th className="num c-num">금액</th>
@@ -178,5 +254,10 @@ export function MonthSheet({ lines, transfers, categories, methods, disabled, ed
         {totalRow('수입-지출', totals.balance)}
       </tbody>
     </table></div>
+    {picked.size > 1 && (values => <div className="pick-sum" role="status">
+      <span>{picked.size}칸 선택</span><strong>합계 {won(values.reduce((a, b) => a + b, 0))}</strong>
+      {values.length > 0 && <span>평균 {won(Math.round(values.reduce((a, b) => a + b, 0) / values.length))}</span>}
+      <button type="button" onClick={() => setPicked(new Set())} aria-label="선택 해제">×</button>
+    </div>)(pickedValues())}
   </>;
 }

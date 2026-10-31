@@ -32,15 +32,18 @@ export type LineFields = z.infer<typeof lineFields>;
 export type LineInput = z.input<typeof lineFields>;
 // 이체 계좌 이름: 비우면 묶음 없음, 보내지 않으면 기존 묶음 유지
 const transferAccount = z.string().trim().max(120).nullable().optional();
+// 처음 적은 결제수단 이름: 있으면 그 이름의 결제수단을 찾거나 만들어 payment_method_id 대신 쓴다.
+const paymentName = nameValue.optional();
 export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('amount'), id: z.string(), amount: signedMoney.nullable() }),
   z.object({ type: z.literal('budget'), id: z.string(), amount: money, future: z.boolean().optional() }),
-  z.object({ type: z.literal('create'), year: yearValue, month: monthValue, fields: lineFields, amount: signedMoney.optional(), transfer_account: transferAccount, future: z.boolean().optional() }),
-  z.object({ type: z.literal('update'), id: z.string(), fields: lineFields, future: z.boolean().optional(), transfer_account: transferAccount }),
+  z.object({ type: z.literal('create'), year: yearValue, month: monthValue, fields: lineFields, amount: signedMoney.optional(), transfer_account: transferAccount, future: z.boolean().optional(), payment_name: paymentName }),
+  z.object({ type: z.literal('update'), id: z.string(), fields: lineFields, future: z.boolean().optional(), transfer_account: transferAccount, payment_name: paymentName }),
   z.object({ type: z.literal('transfer'), id: z.string(), account: nameValue.optional(), amount: money.optional() }),
-  z.object({ type: z.literal('payment'), ids: z.array(z.string()).min(1).max(200), pay_day: z.number().int().min(1).max(31).nullable(), payment_method_id: z.string().nullable(), future: z.boolean().optional() }),
+  z.object({ type: z.literal('payment'), ids: z.array(z.string()).min(1).max(200), pay_day: z.number().int().min(1).max(31).nullable(), payment_method_id: z.string().nullable(), future: z.boolean().optional(), payment_name: paymentName }),
   z.object({ type: z.literal('delete'), id: z.string(), future: z.boolean().optional() }),
-  z.object({ type: z.literal('move'), id: z.string(), direction: z.enum(['up', 'down']) }),
+  // 같은 구역 안에서 줄을 index 자리(그 줄을 뺀 구역 안 순서, 0부터)로 옮긴다.
+  z.object({ type: z.literal('move'), id: z.string(), index: z.number().int().min(0).max(10_000) }),
   z.object({ type: z.literal('quick'), id: z.string(), amount: signedMoney, raw: z.string().max(500) }),
   z.object({ type: z.literal('opening'), year: yearValue, amount: signedMoney }),
   z.object({ type: z.literal('use'), year: yearValue, month: monthValue, amount: money }),

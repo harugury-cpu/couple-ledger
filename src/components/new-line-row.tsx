@@ -6,7 +6,7 @@ import { sections } from '../lib/labels';
 import { MoneyCell } from './money-cell';
 import { TextCell } from './text-cell';
 
-export type NewLine = { name: string; pay_day: number | null; payment_method_id: string | null; category_id: string | null; budget: number; amount: number | null; transfer: string };
+export type NewLine = { name: string; pay_day: number | null; payment_method_id: string | null; payment_name?: string; category_id: string | null; budget: number; amount: number | null; transfer: string };
 type Draft = { payment: string; name: string; category_id: string; budget: number | null; amount: number | null; transfer: string };
 const blank: Draft = { payment: '', name: '', category_id: '', budget: null, amount: null, transfer: '' };
 

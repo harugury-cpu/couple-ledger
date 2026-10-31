@@ -5,13 +5,16 @@ import type { commandSchema } from '../lib/validation';
 
 export async function runLedgerCommand(l: LedgerCore, cmd: z.infer<typeof commandSchema>): Promise<string | undefined> {
   let entry_id: string | undefined;
+  // 표에 처음 적은 결제수단 이름은 설정을 거치지 않고 여기서 만든다.
+  if ((cmd.type === 'create' || cmd.type === 'update') && cmd.payment_name) cmd = { ...cmd, fields: { ...cmd.fields, payment_method_id: await l.ensurePayment(cmd.payment_name) } };
+  if (cmd.type === 'payment' && cmd.payment_name) cmd = { ...cmd, payment_method_id: await l.ensurePayment(cmd.payment_name) };
   switch (cmd.type) {
     case 'amount': await l.setAmount(cmd.id, cmd.amount); break;
     case 'budget': await l.setBudget(cmd.id, cmd.amount, cmd.future); break;
     case 'create': await l.createLine(cmd.year, cmd.month, cmd.fields, cmd.amount, cmd.transfer_account, cmd.future); break;
     case 'update': await l.updateLine(cmd.id, cmd.fields, cmd.future, cmd.transfer_account); break;
     case 'payment': await l.setPayment(cmd.ids, cmd.pay_day, cmd.payment_method_id, cmd.future); break;
-    case 'move': await l.moveLine(cmd.id, cmd.direction); break;
+    case 'move': await l.moveLine(cmd.id, cmd.index); break;
     case 'transfer': await l.saveTransfer(cmd.id, { account: cmd.account, amount: cmd.amount }); break;
     case 'category-save': await l.saveCategory(cmd.name, cmd.id); break;
     case 'category-delete': await l.deleteCategory(cmd.id); break;
