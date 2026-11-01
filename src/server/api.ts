@@ -1,5 +1,5 @@
 // 로컬 Next 라우트와 Workers가 함께 쓰는 표준 Request/Response API.
-import { ZodError } from 'zod';
+import { $ZodError } from 'zod/v4/core';
 import type { LedgerCore } from '../db/ledger-core';
 import { AccessDenied } from '../db/worker-ledger';
 import { runLedgerAction } from '../db/ledger-action';
@@ -113,15 +113,16 @@ function failure(error: unknown, path: string, method: string, ctx: ApiContext) 
     error: path === '/api/ingest' ? '알림 전송 토큰을 확인하세요.' : error instanceof Error ? error.message : '허용된 계정으로 로그인해야 열 수 있습니다.',
   }, { status: path === '/api/ingest' ? 401 : 403, headers: noStore });
   if (error instanceof EditConflict) return Response.json({ error: error.message }, { status: 409, headers: noStore });
-  const invalid = error instanceof InputError || error instanceof NotificationError || error instanceof ZodError || error instanceof SyntaxError;
+  const invalid = error instanceof InputError || error instanceof NotificationError || error instanceof $ZodError || error instanceof SyntaxError;
   let message: string;
   if (path === '/api/ingest') message = invalid ? error instanceof NotificationError ? error.message : '알림 입력 형식을 확인하세요.' : '알림 처리에 실패했습니다. 다시 시도하세요.';
   else if (path === '/api/notifications') message = method === 'GET' ? '알림 목록을 불러오지 못했습니다.' : error instanceof NotificationError ? error.message :
-    error instanceof ZodError || error instanceof SyntaxError ? '알림 입력값을 확인하세요.' : '알림을 처리하지 못했습니다.';
+    error instanceof $ZodError || error instanceof SyntaxError ? '알림 입력값을 확인하세요.' : '알림을 처리하지 못했습니다.';
   else if (path === '/api/ledger') message = method === 'GET' ? '월 데이터를 불러오지 못했습니다. 연도와 월을 확인하세요.' :
     error instanceof InputError ? error.message : invalid ? '입력값을 확인하세요. 금액은 원 단위 정수입니다.' : '가계부를 처리하지 못했습니다. 다시 시도하세요.';
-  else if (path === '/api/backup') message = method === 'GET' ? 'JSON 내보내기에 실패했습니다.' : error instanceof InputError || error instanceof ZodError ? error.message : 'JSON 가져오기에 실패했습니다.';
+  else if (path === '/api/backup') message = method === 'GET' ? 'JSON 내보내기에 실패했습니다.' : error instanceof InputError || error instanceof $ZodError ? error.message : 'JSON 가져오기에 실패했습니다.';
   else if (path === '/api/capture/confirm') message = error instanceof InputError ? error.message : invalid ? '확정할 명세서 항목을 확인하세요.' : '명세서를 저장하지 못했습니다.';
+  // mini의 $ZodError도 Error 하위 클래스다.
   else message = invalid && error instanceof Error ? error.message : '명세서를 읽지 못했습니다.';
   return Response.json({ error: message }, { status: invalid ? 400 : 500, headers: noStore });
 }

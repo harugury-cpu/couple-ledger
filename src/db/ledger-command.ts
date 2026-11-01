@@ -1,5 +1,5 @@
 // 가계부 변경 명령 하나를 실행한다. /api/ledger와 데모 화면(브라우저 안 가계부)이 같이 쓴다.
-import type { z } from 'zod';
+import * as z from 'zod/mini';
 import type { LedgerCore } from './ledger-core';
 import type { commandSchema } from '../lib/validation';
 import { applyEditHistory } from './edit-history';

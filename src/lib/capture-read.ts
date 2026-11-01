@@ -1,13 +1,18 @@
 import { InputError } from './input-error';
-import { z } from 'zod';
+import * as z from 'zod/mini';
+// 영어 기본 문구 하나만 불러온다(z.locales 전체를 참조하면 60여 개 언어가 Worker 번들에 들어가 시작 CPU가 늘어난다).
+import en from 'zod/v4/locales/en.js';
 
-export const captureReadItemSchema = z.object({
-  date: z.string().regex(/^(?:\d{2}\/\d{2}|\d{4}-\d{2}-\d{2})$/),
-  merchant: z.string().trim().min(1).max(500),
-  amount: z.number().int().min(-1_000_000_000_000).max(1_000_000_000_000),
-  raw: z.string().max(2000),
-}).strict();
-const captureResponseSchema = z.object({ items: z.array(captureReadItemSchema).max(2000) }).strict();
+// 이 스키마를 단독으로 읽어도 클래식 Zod의 기본 오류 문구를 유지한다.
+if (!z.config().localeError) z.config(en());
+
+export const captureReadItemSchema = z.strictObject({
+  date: z.string().check(z.regex(/^(?:\d{2}\/\d{2}|\d{4}-\d{2}-\d{2})$/)),
+  merchant: z.string().check(z.trim(), z.minLength(1), z.maxLength(500)),
+  amount: z.number().check(z.int(), z.minimum(-1_000_000_000_000), z.maximum(1_000_000_000_000)),
+  raw: z.string().check(z.maxLength(2000)),
+});
+const captureResponseSchema = z.strictObject({ items: z.array(captureReadItemSchema).check(z.maxLength(2000)) });
 
 export type CaptureReadItem = z.infer<typeof captureReadItemSchema>;
 export type CaptureImage = { mimeType: string; data: string };

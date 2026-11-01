@@ -1,31 +1,31 @@
-import { z } from 'zod';
+import * as z from 'zod/mini';
 import type { MatchRule, MonthLine, PaymentMethod } from '../db/schema';
 import { lineNameWithoutParentheses, normalizeCaptureMerchant } from './capture-match';
 import { monthValue, signedMoney, yearValue } from './validation';
 
-const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(value => {
+const dateSchema = z.string().check(z.regex(/^\d{4}-\d{2}-\d{2}$/), z.refine(value => {
   const date = new Date(`${value}T00:00:00Z`);
   return !Number.isNaN(date.valueOf()) && date.toISOString().slice(0, 10) === value;
-}, '유효한 결제일이 아닙니다.');
-export const notificationTransactionSchema = z.object({
-  date: dateSchema, merchant: z.string().trim().min(1).max(120), amount: signedMoney.refine(value => value !== 0),
-}).strict();
-// 알 수 없는 키는 Zod가 제거한다. 원문 공백은 보존한다.
-export const notificationSchema = z.object({ app: z.string().min(1).max(200), title: z.string().max(2000), text: z.string().min(1).max(8000) });
-export const notificationSettingsSchema = z.object({
-  notify_app: z.string().trim().max(200).nullable().default(null),
-  notify_keyword: z.string().trim().max(200).nullable().default(null),
-  billing_kind: z.enum(['credit', 'debit', 'transfer']).default('debit'),
-  cutoff_day: z.number().int().min(1).max(31).default(31),
+}, '유효한 결제일이 아닙니다.'));
+export const notificationTransactionSchema = z.strictObject({
+  date: dateSchema, merchant: z.string().check(z.trim(), z.minLength(1), z.maxLength(120)), amount: signedMoney.check(z.refine(value => value !== 0)),
 });
-export const notificationConfirmSchema = z.object({
-  type: z.literal('save'), id: z.string().min(1).max(128), transaction: notificationTransactionSchema,
-  lineId: z.string().min(1).max(128), paymentMethodId: z.string().min(1).max(128).nullable(), remember: z.boolean(),
-}).strict();
+// 알 수 없는 키는 Zod가 제거한다. 원문 공백은 보존한다.
+export const notificationSchema = z.object({ app: z.string().check(z.minLength(1), z.maxLength(200)), title: z.string().check(z.maxLength(2000)), text: z.string().check(z.minLength(1), z.maxLength(8000)) });
+export const notificationSettingsSchema = z.object({
+  notify_app: z._default(z.nullable(z.string().check(z.trim(), z.maxLength(200))), null),
+  notify_keyword: z._default(z.nullable(z.string().check(z.trim(), z.maxLength(200))), null),
+  billing_kind: z._default(z.enum(['credit', 'debit', 'transfer']), 'debit'),
+  cutoff_day: z._default(z.number().check(z.int(), z.minimum(1), z.maximum(31)), 31),
+});
+export const notificationConfirmSchema = z.strictObject({
+  type: z.literal('save'), id: z.string().check(z.minLength(1), z.maxLength(128)), transaction: notificationTransactionSchema,
+  lineId: z.string().check(z.minLength(1), z.maxLength(128)), paymentMethodId: z.nullable(z.string().check(z.minLength(1), z.maxLength(128))), remember: z.boolean(),
+});
 export const notificationActionSchema = z.discriminatedUnion('type', [
   notificationConfirmSchema,
-  z.object({ type: z.literal('discard'), id: z.string().min(1).max(128) }).strict(),
-  z.object({ type: z.literal('undo'), id: z.string().min(1).max(128) }).strict(),
+  z.strictObject({ type: z.literal('discard'), id: z.string().check(z.minLength(1), z.maxLength(128)) }),
+  z.strictObject({ type: z.literal('undo'), id: z.string().check(z.minLength(1), z.maxLength(128)) }),
 ]);
 export type NotificationInput = z.infer<typeof notificationSchema>;
 export type NotificationTransaction = z.infer<typeof notificationTransactionSchema>;

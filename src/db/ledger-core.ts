@@ -16,7 +16,7 @@ import { autoEntries, autoEntryId, fromIndex, monthIndex, placeWithTransfer, pla
 import { toStatement, type LedgerStore, type Statement } from './store';
 import { safeSum } from '../lib/calculations';
 import { validateArchive, type Archive } from '../lib/archive';
-import { accountKind, lineFields, money, signedMoney, yearValue, monthValue, nameValue, type CaptureConfirmItem, type LineInput } from '../lib/validation';
+import { accountKind, lineFields, money, positiveMoney, signedMoney, yearValue, monthValue, nameValue, type CaptureConfirmItem, type LineInput } from '../lib/validation';
 import { notificationSettingsSchema, type NotificationSettings } from '../lib/notification';
 import { parseMoney } from '../lib/validation';
 import { parsePayment } from '../lib/payment';
@@ -559,7 +559,7 @@ export class LedgerCore {
     await this.store.batch([toStatement(this.db.update(s.ledgerMonths).set({ special_prompt_seen: true }).where(and(eq(s.ledgerMonths.year, year), eq(s.ledgerMonths.month, month))))]);
   }
   async addSpecial(year: number, month: number, name: string, amount: number, funding: 'line' | 'saving', fromLineId: string | null) {
-    name = nameValue.parse(name); money.min(1).parse(amount); await this.ensureMonth(year, month);
+    name = nameValue.parse(name); positiveMoney.parse(amount); await this.ensureMonth(year, month);
     const id = crypto.randomUUID();
     const statements: Statement[] = [];
     if (funding === 'line') {

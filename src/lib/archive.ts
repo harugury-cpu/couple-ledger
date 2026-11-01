@@ -1,43 +1,43 @@
 import { InputError } from './input-error';
-import { z } from 'zod';
+import * as z from 'zod/mini';
 import { computeLines, monthTotals, savingsRows } from './calculations';
 import { accountKind, canonicalSavingOwner, lineFields, money, signedMoney, entryMoney, nameValue, yearValue, monthValue } from './validation';
 import { notificationSchema, notificationSettingsSchema, notificationTransactionSchema } from './notification';
-const id = z.string().min(1).max(128);
-const sort = z.number().int().min(0).max(1000000);
+const id = z.string().check(z.minLength(1), z.maxLength(128));
+const sort = z.number().check(z.int(), z.minimum(0), z.maximum(1000000));
 const date = z.iso.datetime();
 const ym = { year: yearValue, month: monthValue };
-const rows = <T extends z.ZodType>(schema: T) => z.array(schema).max(100000);
-export const archiveSchema = z.object({
+const rows = <T extends z.ZodMiniType>(schema: T) => z.array(schema).check(z.maxLength(100000));
+export const archiveSchema = z.strictObject({
   app: z.literal('couple-ledger'), version: z.literal(1), exported_at: date,
-  data: z.object({
-    members: rows(z.object({ id, email: z.string().max(320), name: nameValue, role: z.enum(['owner', 'member']) }).strict()).min(1),
-    invites: rows(z.object({ id, email: z.string().max(320), token: z.string().min(1).max(500), expires_at: date, accepted_at: date.nullable() }).strict()),
-    categories: rows(z.object({ id, name: nameValue, sort }).strict()),
-    payment_methods: rows(z.object({ id, name: nameValue, kind: z.enum(['card', 'account']), owner: nameValue, ...notificationSettingsSchema.shape }).strict()),
-    month_lines: rows(lineFields.safeExtend({ id, ...ym, category_id: id.nullable(), payment_method_id: id.nullable(), series_id: id, sort })),
-    entries: rows(z.object({ id, month_line_id: id, amount: entryMoney, source: z.enum(['manual', 'quick', 'auto', 'paste', 'notification', 'capture']), raw_text: z.string().max(12000).nullable(), dedupe_key: z.string().max(1000).nullable().optional().default(null), created_by: id, created_at: date }).strict()),
-    budget_adjustments: rows(z.object({ id, month_line_id: id, amount: signedMoney, special_expense_id: id.nullable() }).strict()),
-    special_expenses: rows(z.object({ id, ...ym, name: nameValue, amount: money.min(1), funding: z.enum(['line','saving']), from_line_id: id.nullable(), calendar_event_id: id.nullable() }).strict()),
-    saving_years: rows(z.object({ year: yearValue, opening_balance: signedMoney }).strict()),
-    saving_uses: rows(z.object({ id, ...ym, amount: money, memo: z.string().max(500), special_expense_id: id.nullable() }).strict()),
-    match_rules: rows(z.object({ id, payment_method_id: id.nullable(), keyword: z.string().max(500).nullable(), series_id: id }).strict()),
-    ledger_months: rows(z.object({ ...ym, special_prompt_seen: z.boolean(), auto_filled: z.boolean().default(true) }).strict()),
-    transfers: rows(z.object({ id, ...ym, series_id: id, account: nameValue, amount: money }).strict()).default([]),
-    cell_merges: rows(z.object({ id, ...ym, section: z.enum(['fixed', 'variable', 'saving', 'income']), line_ids: z.string().max(100000), first_col: z.number().int().min(0).max(7), last_col: z.number().int().min(0).max(7) }).strict()).default([]),
+  data: z.strictObject({
+    members: rows(z.strictObject({ id, email: z.string().check(z.maxLength(320)), name: nameValue, role: z.enum(['owner', 'member']) })).check(z.minLength(1)),
+    invites: rows(z.strictObject({ id, email: z.string().check(z.maxLength(320)), token: z.string().check(z.minLength(1), z.maxLength(500)), expires_at: date, accepted_at: z.nullable(date) })),
+    categories: rows(z.strictObject({ id, name: nameValue, sort })),
+    payment_methods: rows(z.strictObject({ id, name: nameValue, kind: z.enum(['card', 'account']), owner: nameValue, ...notificationSettingsSchema.shape })),
+    month_lines: rows(z.safeExtend(lineFields, { id, ...ym, category_id: z.nullable(id), payment_method_id: z.nullable(id), series_id: id, sort })),
+    entries: rows(z.strictObject({ id, month_line_id: id, amount: entryMoney, source: z.enum(['manual', 'quick', 'auto', 'paste', 'notification', 'capture']), raw_text: z.nullable(z.string().check(z.maxLength(12000))), dedupe_key: z._default(z.optional(z.nullable(z.string().check(z.maxLength(1000)))), null), created_by: id, created_at: date })),
+    budget_adjustments: rows(z.strictObject({ id, month_line_id: id, amount: signedMoney, special_expense_id: z.nullable(id) })),
+    special_expenses: rows(z.strictObject({ id, ...ym, name: nameValue, amount: money.check(z.minimum(1)), funding: z.enum(['line','saving']), from_line_id: z.nullable(id), calendar_event_id: z.nullable(id) })),
+    saving_years: rows(z.strictObject({ year: yearValue, opening_balance: signedMoney })),
+    saving_uses: rows(z.strictObject({ id, ...ym, amount: money, memo: z.string().check(z.maxLength(500)), special_expense_id: z.nullable(id) })),
+    match_rules: rows(z.strictObject({ id, payment_method_id: z.nullable(id), keyword: z.nullable(z.string().check(z.maxLength(500))), series_id: id })),
+    ledger_months: rows(z.strictObject({ ...ym, special_prompt_seen: z.boolean(), auto_filled: z._default(z.boolean(), true) })),
+    transfers: z._default(rows(z.strictObject({ id, ...ym, series_id: id, account: nameValue, amount: money })), []),
+    cell_merges: z._default(rows(z.strictObject({ id, ...ym, section: z.enum(['fixed', 'variable', 'saving', 'income']), line_ids: z.string().check(z.maxLength(100000)), first_col: z.number().check(z.int(), z.minimum(0), z.maximum(7)), last_col: z.number().check(z.int(), z.minimum(0), z.maximum(7)) })), []),
     // 잔액 화면 이전에 내보낸 파일에는 없으므로 비어 있는 것으로 읽는다.
-    accounts: rows(z.object({ id, name: nameValue, kind: accountKind, target: money.nullable(), sort }).strict()).default([]),
-    account_balances: rows(z.object({ id, account_id: id, ...ym, amount: signedMoney }).strict()).default([]),
-    notification_events: rows(z.object({
-      id, payload: z.string().max(100000), transaction_json: z.string().max(1000).nullable(),
-      fingerprint: z.string().length(64), approval_key: z.string().length(64).nullable(),
-      received_at: z.number().int().nonnegative(), payment_method_id: id.nullable(),
+    accounts: z._default(rows(z.strictObject({ id, name: nameValue, kind: accountKind, target: z.nullable(money), sort })), []),
+    account_balances: z._default(rows(z.strictObject({ id, account_id: id, ...ym, amount: signedMoney })), []),
+    notification_events: z._default(rows(z.strictObject({
+      id, payload: z.string().check(z.maxLength(100000)), transaction_json: z.nullable(z.string().check(z.maxLength(1000))),
+      fingerprint: z.string().check(z.length(64)), approval_key: z.nullable(z.string().check(z.length(64))),
+      received_at: z.number().check(z.int(), z.nonnegative()), payment_method_id: z.nullable(id),
       billing_kind: notificationSettingsSchema.shape.billing_kind, cutoff_day: notificationSettingsSchema.shape.cutoff_day,
-      ...ym, reason: z.string().max(200).nullable(), status: z.enum(['review', 'saved', 'undone', 'discarded']),
-      entry_id: id.nullable(), line_name: nameValue.nullable(), created_at: date,
-    }).strict()).default([]),
-  }).strict(),
-}).strict();
+      ...ym, reason: z.nullable(z.string().check(z.maxLength(200))), status: z.enum(['review', 'saved', 'undone', 'discarded']),
+      entry_id: z.nullable(id), line_name: z.nullable(nameValue), created_at: date,
+    })), []),
+  }),
+});
 export type Archive = z.infer<typeof archiveSchema>;
 function unique<T>(rows: T[], key: (row: T) => string | number, label: string) {
   const seen = new Set<string | number>();

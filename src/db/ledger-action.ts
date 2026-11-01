@@ -1,5 +1,5 @@
 import { InputError } from '../lib/input-error';
-import type { z } from 'zod';
+import * as z from 'zod/mini';
 import type { commandSchema } from '../lib/validation';
 import type { LedgerCore } from './ledger-core';
 import { runLedgerCommand } from './ledger-command';
