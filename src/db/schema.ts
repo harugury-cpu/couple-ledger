@@ -77,6 +77,14 @@ export type SavingUse = typeof savingUses.$inferSelect;
 export type SavingYear = typeof savingYears.$inferSelect;
 export type SpecialExpense = typeof specialExpenses.$inferSelect;
 
+// 표시만 병합한다. 원래 값과 거래의 계좌 연결은 보존한다.
+export const cellMerges = sqliteTable('cell_merges', {
+  id: text().primaryKey(), year: integer().notNull(), month: integer().notNull(),
+  section: text({ enum: ['fixed', 'variable', 'saving', 'income'] }).notNull(),
+  line_ids: text().notNull(), first_col: integer().notNull(), last_col: integer().notNull(),
+});
+export type CellMerge = typeof cellMerges.$inferSelect;
+
 export const notificationEvents = sqliteTable('notification_events', {
   id: text().primaryKey(), payload: text().notNull(), transaction_json: text(),
   fingerprint: text().notNull(), approval_key: text(), received_at: integer().notNull(),

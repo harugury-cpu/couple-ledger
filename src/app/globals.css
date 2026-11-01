@@ -200,11 +200,25 @@ tfoot th, tfoot td { font-weight: 700 !important; background: var(--total); }
 /* 여러 숫자 칸 고르기: 고른 칸은 옅게 칠하고, 합계는 화면 아래 가운데에 떠 있다 */
 .sheet [data-picked] { background: rgba(20, 20, 19, .07) !important; box-shadow: inset 0 0 0 1px rgba(20, 20, 19, .35); }
 .sheet [data-picked] .money-input { color: var(--ink); }
+.sheet-tools { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 6px 0 10px; }
+.sheet-tools button { min-height: 30px; padding: 3px 10px; font-size: 12px; }
+.sheet-tools button[aria-pressed="true"] { background: var(--ink); color: var(--white); }
+.tool-divider { width: 1px; height: 18px; background: var(--hairline-canvas); margin: 0 3px; }
+.selection-info { color: var(--slate); font-size: 11px; margin-left: 4px; }
+.sheet [data-pick] { cursor: cell; user-select: none; }
+.sheet [data-pick] input { user-select: text; cursor: text; }
+.sheet tr.line > .manual-merged { position: relative; vertical-align: top; }
+.sheet:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
 .pick-sum { position: fixed; left: 50%; bottom: 18px; translate: -50% 0; z-index: 20; display: flex; align-items: center; gap: 14px; padding: 8px 10px 8px 16px; border-radius: var(--radius-pill); background: var(--ink); color: var(--canvas); font-size: 13px; font-variant-numeric: tabular-nums; box-shadow: 0 6px 20px rgba(20, 20, 19, .18); }
 .pick-sum strong { font-weight: 700; }
 .pick-sum span { color: rgba(243, 240, 238, .7); }
 .pick-sum button { width: 24px; min-height: 24px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--canvas); font-size: 15px; line-height: 1; }
 .pick-sum button:hover { background: rgba(243, 240, 238, .14); }
+/* 병합된 칸의 분리 버튼: 칸에 올리면 오른쪽 위에 보인다 */
+.sheet td.merged { position: relative; }
+.merge-split, .manual-split { position: absolute; top: 3px; right: 3px; min-height: 0; height: 18px; padding: 0 6px; border: 1px solid var(--outline-soft); border-radius: var(--radius-pill); background: var(--white); color: var(--slate); font-size: 10px; line-height: 1; opacity: 0; }
+.sheet td.merged:hover .merge-split, .merge-split:focus-visible, .sheet .manual-merged:hover .manual-split, .manual-split:focus-visible { opacity: 1; }
+.merge-split:hover:not(:disabled) { color: var(--ink); border-color: var(--ink); }
 /* 손가락으로 쓰는 화면에는 올리기가 없으므로 흐리게 늘 보인다 */
 @media (hover: none) { .line-delete { opacity: .45; } }
 .merged .line-name { white-space: normal; height: auto; color: var(--slate); }

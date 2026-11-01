@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react';
 import type { ComputedLine } from '../lib/calculations';
 import type { CaptureMatchItem } from '../lib/capture-match';
 import { sections, won } from '../lib/labels';
+import { fetchJson } from '../lib/fetch-json';
 
 type Draft = CaptureMatchItem & { selected: boolean; remember: boolean; amountText: string; unclassified: boolean };
 type Section = ComputedLine['section'];
@@ -35,9 +36,7 @@ export function CapturePanel({ year, month, lines, disabled, onClose, onSuccess 
     try {
       const form = new FormData(); form.set('year', String(year)); form.set('month', String(month));
       files.forEach(file => form.append('images', file));
-      const response = await fetch('/api/capture/read', { method: 'POST', body: form });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error);
+      const result = await fetchJson<{ items: CaptureMatchItem[] }>('/api/capture/read', { method: 'POST', body: form });
       setDrafts((result.items as CaptureMatchItem[]).map(item => ({ ...item, selected: !item.duplicate && !!item.lineId, remember: false,
         amountText: won(item.amount), unclassified: item.lineId === null })));
     } catch (e) { setError(e instanceof Error ? e.message : '명세서를 읽지 못했습니다.'); }
@@ -56,10 +55,8 @@ export function CapturePanel({ year, month, lines, disabled, onClose, onSuccess 
     if (items.some(item => item.amount === null)) { setError('금액은 원 단위 정수로 입력하세요.'); return; }
     setConfirming(true); setError('');
     try {
-      const response = await fetch('/api/capture/confirm', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      const result = await fetchJson<{ inserted?: number }>('/api/capture/confirm', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ year, month, items: items.map(item => ({ key: item.key, lineId: item.lineId, amount: item.amount, raw: item.raw, remember: item.remember, merchant: item.merchant })) }) });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error);
       onSuccess(result.inserted ?? 0);
     } catch (e) { setError(e instanceof Error ? e.message : '명세서 항목을 넣지 못했습니다.'); }
     finally { setConfirming(false); }

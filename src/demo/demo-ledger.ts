@@ -2,7 +2,7 @@
 // 실제 가계부(D1)와는 아무 연결이 없다. 이름·금액은 모두 만든 예시이고, 새로고침하면 처음 상태로 돌아간다.
 import type { Database } from 'sql.js';
 import { LedgerCore } from '../db/ledger-core';
-import { runLedgerCommand } from '../db/ledger-command';
+import { runLedgerAction } from '../db/ledger-action';
 import { SqlJsStore, type Migration } from '../db/store-sqljs';
 import { commandSchema, yearValue, monthValue } from '../lib/validation';
 
@@ -105,8 +105,8 @@ export async function handleDemoRequest(core: LedgerCore, url: URL, init?: Reque
     catch { return json({ error: '월 데이터를 불러오지 못했습니다. 연도와 월을 확인하세요.' }, 400); }
   }
   try {
-    const entry_id = await runLedgerCommand(core, commandSchema.parse(JSON.parse(String(init?.body))));
-    return json({ ok: true, entry_id });
+    const result = await runLedgerAction(core, commandSchema.parse(JSON.parse(String(init?.body))), new Headers(init?.headers).get('x-ledger-operation'));
+    return json({ ok: true, ...result });
   } catch (error) {
     return json({ error: error instanceof Error && !('issues' in error) ? error.message : '입력값을 확인하세요. 금액은 원 단위 정수입니다.' }, 400);
   }

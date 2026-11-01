@@ -4,6 +4,7 @@ import type { MonthLine, PaymentMethod } from '../db/schema';
 import type { NotificationList, NotificationView } from '../db/notification-inbox';
 import { notificationMonth, notificationTransactionSchema } from '../lib/notification';
 import { sections, won } from '../lib/labels';
+import { fetchJson } from '../lib/fetch-json';
 
 type Props = { year: number; month: number; methods: PaymentMethod[]; disabled: boolean; onClose: () => void; onSuccess: (message: string) => void };
 
@@ -31,8 +32,7 @@ function ReviewItem({ item, methods, disabled, act }: {
     setLineId(''); setRemember(false); setLines([]); setError('');
     if (targetYear === undefined || targetMonth === undefined) { setLoading(false); return; }
     setLoading(true);
-    fetch(`/api/ledger?year=${targetYear}&month=${targetMonth}`, { signal: controller.signal })
-      .then(async response => { const data = await response.json(); if (!response.ok) throw new Error(data.error); return data; })
+    fetchJson<{ lines: MonthLine[] }>(`/api/ledger?year=${targetYear}&month=${targetMonth}`, { signal: controller.signal }, 1)
       .then(data => setLines((data.lines as MonthLine[]).filter(line => line.year === targetYear && line.month === targetMonth &&
         ['fixed', 'variable'].includes(line.section) && !line.series_id.startsWith('special:'))))
       .catch(e => { if (e.name !== 'AbortError') setError('청구월의 줄을 불러오지 못했습니다.'); })
@@ -84,8 +84,7 @@ export function NotificationPanel({ year, month, methods, disabled, onClose, onS
   const [revision, setRevision] = useState(0);
   useEffect(() => {
     const controller = new AbortController(); setLoading(true); setError('');
-    fetch(`/api/notifications?year=${year}&month=${month}`, { signal: controller.signal })
-      .then(async response => { const json = await response.json(); if (!response.ok) throw new Error(json.error); return json; })
+    fetchJson<typeof data>(`/api/notifications?year=${year}&month=${month}`, { signal: controller.signal }, 1)
       .then(setData).catch(e => { if (e.name !== 'AbortError') setError(e.message); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
@@ -93,8 +92,7 @@ export function NotificationPanel({ year, month, methods, disabled, onClose, onS
   async function act(action: object, message: string) {
     setBusy(true); setError('');
     try {
-      const response = await fetch('/api/notifications', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(action) });
-      const result = await response.json(); if (!response.ok) throw new Error(result.error);
+      await fetchJson('/api/notifications', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(action) });
       onSuccess(message); setRevision(value => value + 1);
     } catch (e) { setError(e instanceof Error ? e.message : '알림을 처리하지 못했습니다.'); }
     finally { setBusy(false); }

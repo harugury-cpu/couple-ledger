@@ -1,3 +1,4 @@
+import { InputError } from './input-error';
 import { z } from 'zod';
 
 export const captureReadItemSchema = z.object({
@@ -40,13 +41,13 @@ const prompt = `한국 카드 앱의 명세서 또는 이용내역 화면 이미
 읽을 수 없는 거래는 추측하지 말고 제외합니다. 전혀 읽지 못하면 빈 배열을 반환합니다.`;
 
 function responseText(payload: unknown) {
-  if (!payload || typeof payload !== 'object') throw new Error('명세서 내용을 읽지 못했습니다.');
+  if (!payload || typeof payload !== 'object') throw new InputError('명세서 내용을 읽지 못했습니다.');
   const candidates = (payload as { candidates?: unknown }).candidates;
-  if (!Array.isArray(candidates)) throw new Error('명세서 내용을 읽지 못했습니다.');
+  if (!Array.isArray(candidates)) throw new InputError('명세서 내용을 읽지 못했습니다.');
   const parts = (candidates[0] as { content?: { parts?: unknown } } | undefined)?.content?.parts;
-  if (!Array.isArray(parts)) throw new Error('명세서 내용을 읽지 못했습니다.');
+  if (!Array.isArray(parts)) throw new InputError('명세서 내용을 읽지 못했습니다.');
   const text = parts.map(part => typeof part === 'object' && part && 'text' in part && typeof part.text === 'string' ? part.text : '').join('').trim();
-  if (!text) throw new Error('명세서 내용을 읽지 못했습니다.');
+  if (!text) throw new InputError('명세서 내용을 읽지 못했습니다.');
   return text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
 }
 
@@ -55,12 +56,12 @@ export function parseCaptureResponse(payload: unknown): CaptureReadItem[] {
   try {
     return captureResponseSchema.parse(JSON.parse(responseText(payload))).items;
   } catch {
-    throw new Error('명세서 내용을 읽지 못했습니다.');
+    throw new InputError('명세서 내용을 읽지 못했습니다.');
   }
 }
 
 export async function readCaptureImages(images: CaptureImage[], apiKey: string): Promise<CaptureReadItem[]> {
-  if (!apiKey) throw new Error('Gemini API 키가 설정되지 않았습니다.');
+  if (!apiKey) throw new InputError('Gemini API 키가 설정되지 않았습니다.');
   let response: Response;
   try {
     response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent', {
@@ -72,10 +73,10 @@ export async function readCaptureImages(images: CaptureImage[], apiKey: string):
       }),
     });
   } catch {
-    throw new Error('명세서를 읽는 중 Gemini 연결에 실패했습니다.');
+    throw new InputError('명세서를 읽는 중 Gemini 연결에 실패했습니다.');
   }
   let payload: unknown;
-  try { payload = await response.json(); } catch { throw new Error('명세서 내용을 읽지 못했습니다.'); }
-  if (!response.ok) throw new Error('명세서를 읽지 못했습니다.');
+  try { payload = await response.json(); } catch { throw new InputError('명세서 내용을 읽지 못했습니다.'); }
+  if (!response.ok) throw new InputError('명세서를 읽지 못했습니다.');
   return parseCaptureResponse(payload);
 }

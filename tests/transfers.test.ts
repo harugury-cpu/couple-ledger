@@ -108,3 +108,33 @@ it('같은 달에 같은 이름의 이체 계좌를 둘 만들 수 없다', asyn
   const other = s.transfers.find(t => t.account === 'E은행')!;
   await expect(l.saveTransfer(other.id, { account: 'A은행' })).rejects.toThrow();
 });
+
+it('이체 금액·계좌 이름은 고를 때만 이미 만든 이후 달에도 반영된다', async () => {
+  await setup();
+  await l.ensureMonth(2026, 2);
+  const jan = (await l.snapshot(2026, 1)).transfers.find(t => t.month === 1)!;
+  const feb = () => l.snapshot(2026, 2).then(s => s.transfers.find(t => t.month === 2 && t.series_id === jan.series_id)!);
+  await l.saveTransfer(jan.id, { amount: 500000 });
+  expect((await feb()).amount).toBe(450000);
+  await l.saveTransfer(jan.id, { amount: 520000, account: '데통' }, true);
+  expect(await feb()).toMatchObject({ amount: 520000, account: '데통' });
+});
+
+it('자동 줄의 금액을 고치면 예산이 같이 바뀌고, 고를 때 이후 달의 예산·자동 금액도 바뀐다', async () => {
+  l = new Ledger(':memory:');
+  // 1월을 먼저 만들어야 2월이 1월을 이어받아 자동 금액을 넣는다(첫 달은 양식이라 자동 금액이 없다).
+  await l.ensureMonth(2026, 1);
+  const jan = (await l.month(2026, 1)).find(r => r.input_mode === 'fixed' && r.section === 'variable')!;
+  await l.ensureMonth(2026, 2);
+  const actualOf = async (month: number) => {
+    const snap = await l.snapshot(2026, month);
+    return computeLines(snap.lines.filter(r => r.month === month), snap.entries, snap.adjustments).find(r => r.series_id === jan.series_id)!;
+  };
+  await l.setAmount(jan.id, 200000);
+  expect(await actualOf(1)).toMatchObject({ budget: 200000, actual: 200000 });
+  expect((await actualOf(2)).budget).toBe(jan.budget);
+  await l.setAmount(jan.id, 300000, true);
+  expect(await actualOf(2)).toMatchObject({ budget: 300000, actual: 300000 });
+  // 아직 안 만든 달은 마지막 달을 이어받는다
+  expect((await actualOf(3)).budget).toBe(300000);
+});

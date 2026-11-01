@@ -1,7 +1,8 @@
+import { InputError } from './input-error';
 import type { Account, AccountBalance, Adjustment, Category, Entry, MonthLine, Transfer } from '../db/schema';
 export function safeSum(values: number[]): number {
   const sum = values.reduce((acc, n) => acc + BigInt(n), 0n);
-  if (sum > BigInt(Number.MAX_SAFE_INTEGER) || sum < BigInt(Number.MIN_SAFE_INTEGER)) throw new Error('합계가 정수 계산의 안전 범위를 넘습니다.');
+  if (sum > BigInt(Number.MAX_SAFE_INTEGER) || sum < BigInt(Number.MIN_SAFE_INTEGER)) throw new InputError('합계가 정수 계산의 안전 범위를 넘습니다.');
   return Number(sum);
 }
 export type ComputedLine = MonthLine & { actual: number; effectiveBudget: number; hasEntry: boolean };
@@ -12,7 +13,7 @@ export function computeLines(lines: MonthLine[], entries: Entry[], adjustments: 
   for (const a of adjustments) changes.set(a.month_line_id, (changes.get(a.month_line_id) ?? 0n) + BigInt(a.amount));
   return lines.map(l => {
     const actual = amounts.get(l.id) ?? 0n; const budget = BigInt(l.budget) + (changes.get(l.id) ?? 0n);
-    const checked = (n: bigint) => { if (n > BigInt(Number.MAX_SAFE_INTEGER) || n < BigInt(Number.MIN_SAFE_INTEGER)) throw new Error('합계가 정수 계산의 안전 범위를 넘습니다.'); return Number(n); };
+    const checked = (n: bigint) => { if (n > BigInt(Number.MAX_SAFE_INTEGER) || n < BigInt(Number.MIN_SAFE_INTEGER)) throw new InputError('합계가 정수 계산의 안전 범위를 넘습니다.'); return Number(n); };
     return { ...l, actual: checked(actual), effectiveBudget: checked(budget), hasEntry: amounts.has(l.id) };
   });
 }

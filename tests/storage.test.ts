@@ -1,5 +1,5 @@
 import { afterEach, expect, it } from 'vitest';
-import { mkdtempSync, readdirSync, readFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { createClient } from '@libsql/client';
@@ -126,7 +126,8 @@ it('로컬 파일 DB에서 동시에 저장해도 SQLITE_BUSY로 실패하지 �
   const snap = await l.snapshot(2026, 1);
   const computed = computeLines(snap.lines, snap.entries, snap.adjustments);
   expect([777, 888]).toContain(computed.find(r => r.id === target.id)!.actual);
-  lines.forEach((line, i) => expect(computed.find(r => r.id === line.id)).toMatchObject({ budget: 5000 + i }));
+  // 자동 줄은 금액 저장이 예산도 맞추므로, 예산은 마지막에 저장된 쪽(예산 5000+i 또는 금액 1000+i)이다.
+  lines.forEach((line, i) => expect(line.input_mode === 'fixed' ? [5000 + i, 1000 + i] : [5000 + i]).toContain(computed.find(r => r.id === line.id)!.budget));
   // 금액 칸 저장과 빠른 입력이 섞여도 빠른 입력 10원은 사라지지 않는다: 최종 금액은 (저장한 값) 또는 (저장한 값 + 10)
   lines.forEach((line, i) => expect([1000 + i, 1010 + i]).toContain(computed.find(r => r.id === line.id)!.actual));
 });
@@ -178,7 +179,11 @@ it('저축 명의 마이그레이션은 참조를 켠 상태에서도 행과 금
     CREATE TABLE d1_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP);
     INSERT INTO d1_migrations (name) VALUES ('0001_init.sql'), ('0002_ledger_months_auto_filled.sql'), ('0003_capture.sql'), ('0004_notifications.sql');
   `);
-  await migrateLocal(legacy, resolve('migrations'));
+  // 부분 스키마인 이 fixture는 명의 변환만 검증한다. 이후의 전체 앱 마이그레이션과 격리한다.
+  mkdirSync(resolve('_scratch'), { recursive: true });
+  const migrationDir = mkdtempSync(resolve('_scratch/owner-migration-'));
+  writeFileSync(join(migrationDir, '0005_saving_owner_keys.sql'), readFileSync(resolve('migrations/0005_saving_owner_keys.sql'), 'utf8'), 'utf8');
+  await migrateLocal(legacy, migrationDir);
   const owners = (await legacy.execute("SELECT saving_owner AS owner, count(*) AS c FROM month_lines GROUP BY saving_owner ORDER BY owner")).rows.map(row => [row.owner, Number(row.c)]);
   expect(owners).toEqual([[null, 1], ['a', 2], ['b', 1]]);
   expect(Number((await legacy.execute('SELECT count(*) AS c FROM entries')).rows[0].c)).toBe(1);

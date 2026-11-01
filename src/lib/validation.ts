@@ -1,3 +1,4 @@
+import { InputError } from './input-error';
 import { z } from 'zod';
 export const money = z.number().int().min(0).max(1_000_000_000_000);
 export const signedMoney = z.number().int().min(-1_000_000_000_000).max(1_000_000_000_000);
@@ -41,11 +42,15 @@ const commandLineFields = z.preprocess(value => {
   return { ...fields, saving_owner: canonicalSavingOwner(fields.saving_owner) };
 }, lineFields);
 export const commandSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('amount'), id: z.string(), amount: signedMoney.nullable() }),
+  z.object({ type: z.literal('cells'), year: yearValue, month: monthValue, changes: z.array(z.object({ id: z.string().min(1).max(128), col: z.number().int().min(0).max(6), value: z.string().max(12000) }).strict()).min(1).max(512) }),
+  z.object({ type: z.literal('cell-merge'), year: yearValue, month: monthValue, ids: z.array(z.string().min(1).max(128)).min(1).max(512), first_col: z.number().int().min(0).max(7), last_col: z.number().int().min(0).max(7) }),
+  z.object({ type: z.literal('cell-unmerge'), ids: z.array(z.string().min(1).max(128)).min(1).max(512) }),
+  z.object({ type: z.literal('history'), id: z.string().min(1).max(128), direction: z.enum(['undo', 'redo']) }),
+  z.object({ type: z.literal('amount'), id: z.string(), amount: signedMoney.nullable(), future: z.boolean().optional() }),
   z.object({ type: z.literal('budget'), id: z.string(), amount: money, future: z.boolean().optional() }),
   z.object({ type: z.literal('create'), year: yearValue, month: monthValue, fields: commandLineFields, amount: signedMoney.optional(), transfer_account: transferAccount, future: z.boolean().optional(), payment_name: paymentName }),
   z.object({ type: z.literal('update'), id: z.string(), fields: commandLineFields, future: z.boolean().optional(), transfer_account: transferAccount, payment_name: paymentName }),
-  z.object({ type: z.literal('transfer'), id: z.string(), account: nameValue.optional(), amount: money.optional() }),
+  z.object({ type: z.literal('transfer'), id: z.string(), account: nameValue.optional(), amount: money.optional(), future: z.boolean().optional() }),
   z.object({ type: z.literal('payment'), ids: z.array(z.string()).min(1).max(200), pay_day: z.number().int().min(1).max(31).nullable(), payment_method_id: z.string().nullable(), future: z.boolean().optional(), payment_name: paymentName }),
   z.object({ type: z.literal('delete'), id: z.string(), future: z.boolean().optional() }),
   // 같은 구역 안에서 줄을 index 자리(그 줄을 뺀 구역 안 순서, 0부터)로 옮긴다.
@@ -72,7 +77,7 @@ export type CaptureConfirmItem = z.infer<typeof capturedItem>;
 export function parseMoney(text: string, signed = false): number | null {
   if (!text.trim()) return null;
   const clean = text.replaceAll(',', '').trim();
-  if (!(signed ? /^-?\d+$/ : /^\d+$/).test(clean)) throw new Error('금액은 원 단위 정수로 입력하세요.');
+  if (!(signed ? /^-?\d+$/ : /^\d+$/).test(clean)) throw new InputError('금액은 원 단위 정수로 입력하세요.');
   const value = Number(clean);
   (signed ? signedMoney : money).parse(value);
   return value;

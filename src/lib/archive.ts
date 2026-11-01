@@ -1,3 +1,4 @@
+import { InputError } from './input-error';
 import { z } from 'zod';
 import { computeLines, monthTotals, savingsRows } from './calculations';
 import { accountKind, canonicalSavingOwner, lineFields, money, signedMoney, entryMoney, nameValue, yearValue, monthValue } from './validation';
@@ -23,6 +24,7 @@ export const archiveSchema = z.object({
     match_rules: rows(z.object({ id, payment_method_id: id.nullable(), keyword: z.string().max(500).nullable(), series_id: id }).strict()),
     ledger_months: rows(z.object({ ...ym, special_prompt_seen: z.boolean(), auto_filled: z.boolean().default(true) }).strict()),
     transfers: rows(z.object({ id, ...ym, series_id: id, account: nameValue, amount: money }).strict()).default([]),
+    cell_merges: rows(z.object({ id, ...ym, section: z.enum(['fixed', 'variable', 'saving', 'income']), line_ids: z.string().max(100000), first_col: z.number().int().min(0).max(7), last_col: z.number().int().min(0).max(7) }).strict()).default([]),
     // 잔액 화면 이전에 내보낸 파일에는 없으므로 비어 있는 것으로 읽는다.
     accounts: rows(z.object({ id, name: nameValue, kind: accountKind, target: money.nullable(), sort }).strict()).default([]),
     account_balances: rows(z.object({ id, account_id: id, ...ym, amount: signedMoney }).strict()).default([]),
@@ -39,7 +41,7 @@ export const archiveSchema = z.object({
 export type Archive = z.infer<typeof archiveSchema>;
 function unique<T>(rows: T[], key: (row: T) => string | number, label: string) {
   const seen = new Set<string | number>();
-  for (const row of rows) { const k = key(row); if (seen.has(k)) throw new Error(`${label}에 중복된 식별자가 있습니다.`); seen.add(k); }
+  for (const row of rows) { const k = key(row); if (seen.has(k)) throw new InputError(`${label}에 중복된 식별자가 있습니다.`); seen.add(k); }
 }
 function withCanonicalSavingOwners(input: unknown): unknown {
   if (!input || typeof input !== 'object') return input;
@@ -54,7 +56,7 @@ function withCanonicalSavingOwners(input: unknown): unknown {
 }
 export function validateArchive(input: unknown): Archive {
   const result = archiveSchema.safeParse(withCanonicalSavingOwners(input));
-  if (!result.success) throw new Error('가계부 JSON 형식·버전·금액·필수 항목을 확인하세요.');
+  if (!result.success) throw new InputError('가계부 JSON 형식·버전·금액·필수 항목을 확인하세요.');
   const archive = result.data; const d = archive.data;
   for (const [name, records] of Object.entries(d)) {
     if (name !== 'saving_years' && name !== 'ledger_months') unique(records as { id: string }[], r => r.id, name);
@@ -65,12 +67,17 @@ export function validateArchive(input: unknown): Archive {
   unique(d.categories, r => r.name, '카테고리 이름'); unique(d.payment_methods, r => r.name, '결제수단 이름');
   unique(d.accounts, r => r.name, '계좌 이름'); unique(d.account_balances, r => `${r.account_id}-${r.year}-${r.month}`, '계좌 잔액');
   const accountIds = new Set(d.accounts.map(a => a.id));
-  if (d.account_balances.some(b => !accountIds.has(b.account_id))) throw new Error('잔액 기록의 계좌를 찾을 수 없습니다.');
-  if (d.members.filter(m => m.role === 'owner').length !== 1) throw new Error('가계부 주인 멤버가 한 명이어야 합니다.');
+  if (d.account_balances.some(b => !accountIds.has(b.account_id))) throw new InputError('잔액 기록의 계좌를 찾을 수 없습니다.');
+  if (d.members.filter(m => m.role === 'owner').length !== 1) throw new InputError('가계부 주인 멤버가 한 명이어야 합니다.');
   const members = new Set(d.members.map(m => m.id)); const cats = new Set(d.categories.map(c => c.id)); const methods = new Set(d.payment_methods.map(m => m.id));
   const lines = new Map(d.month_lines.map(l => [l.id, l])); const specials = new Map(d.special_expenses.map(e => [e.id, e]));
   const series = new Set(d.month_lines.map(l => l.series_id)); const months = new Set(d.ledger_months.map(m => `${m.year}-${m.month}`));
-  const check = (condition: unknown, message: string) => { if (!condition) throw new Error(message); };
+  for (const merge of d.cell_merges) {
+    let ids: unknown;
+    try { ids = JSON.parse(merge.line_ids); } catch { throw new InputError('병합 정보의 항목 목록이 올바르지 않습니다.'); }
+    if (!Array.isArray(ids) || !ids.length || ids.length > 512 || new Set(ids).size !== ids.length || merge.first_col > merge.last_col || ids.some(id => typeof id !== 'string' || !lines.has(id) || lines.get(id)!.year !== merge.year || lines.get(id)!.month !== merge.month || lines.get(id)!.section !== merge.section)) throw new InputError('병합 정보의 범위 또는 항목을 확인하세요.');
+  }
+  const check = (condition: unknown, message: string) => { if (!condition) throw new InputError(message); };
   const computed = computeLines(d.month_lines, d.entries, d.budget_adjustments);
   const actuals = new Map(computed.map(l => [l.id, l.actual]));
   for (const l of d.month_lines) {
@@ -93,7 +100,7 @@ export function validateArchive(input: unknown): Archive {
     try {
       notificationSchema.parse(JSON.parse(event.payload));
       if (event.transaction_json !== null) notificationTransactionSchema.parse(JSON.parse(event.transaction_json));
-    } catch { throw new Error('알림 원문 또는 읽은 거래 형식을 확인하세요.'); }
+    } catch { throw new InputError('알림 원문 또는 읽은 거래 형식을 확인하세요.'); }
     // 줄 삭제·금액 비우기로 entry가 사라져도 알림의 중복 방지 흔적은 보존한다.
     const entry = event.entry_id ? entryById.get(event.entry_id) : undefined;
     if (entry) check(event.status === 'saved' && entry.source === 'notification' && entry.id === `notification:${event.id}`,

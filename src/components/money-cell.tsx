@@ -12,5 +12,5 @@ export function MoneyCell({ value, label, disabled, signed = false, onSave, onEr
       if (cancelled.current || draft === null) { cancelled.current = false; setDraft(null); return; }
       try { const next = parseMoney(draft, signed); if (next !== value) onSave(next); } catch (e) { onError(e instanceof Error ? e.message : '금액을 확인하세요.'); }
       setDraft(null);
-    }} onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') { cancelled.current = true; e.currentTarget.blur(); } }} />;
+    }} onKeyDown={e => { if (e.key === 'Enter') { const table = e.currentTarget.closest('table'); e.currentTarget.blur(); table?.focus({ preventScroll: true }); } if (e.key === 'Escape') { cancelled.current = true; const table = e.currentTarget.closest('table'); e.currentTarget.blur(); table?.focus({ preventScroll: true }); } }} />;
 }

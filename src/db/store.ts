@@ -6,7 +6,7 @@ import type * as schema from './schema';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type LedgerDb = BaseSQLiteDatabase<'async', any, typeof schema>;
 // 쓰기 한 줄. drizzle 쿼리의 toSQL() 결과와 같은 모양이다.
-export type Statement = { sql: string; params: unknown[] };
+export type Statement = { sql: string; params: unknown[]; history?: boolean };
 
 export interface LedgerStore {
   // 읽기 전용으로 쓴다. 쓰기는 반드시 batch로 보낸다. (D1은 "읽고-판단하고-쓰기" 묶음 처리를 받지 않는다)

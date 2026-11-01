@@ -10,5 +10,5 @@ export function TextCell({ value, label, disabled, onSave, placeholder, classNam
   return <input ref={inputRef} className={`text-input ${className}`} aria-label={label} value={draft ?? value} maxLength={120} disabled={disabled} placeholder={placeholder} list={list}
     onFocus={() => setDraft(value)} onChange={e => setDraft(e.target.value)}
     onBlur={() => { if (!cancelled.current && draft !== null && draft.trim() !== value) onSave(draft.trim()); cancelled.current = false; setDraft(null); }}
-    onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') { cancelled.current = true; e.currentTarget.blur(); } }} />;
+    onKeyDown={e => { if (e.key === 'Enter') { const table = e.currentTarget.closest('table'); e.currentTarget.blur(); table?.focus({ preventScroll: true }); } if (e.key === 'Escape') { cancelled.current = true; const table = e.currentTarget.closest('table'); e.currentTarget.blur(); table?.focus({ preventScroll: true }); } }} />;
 }
