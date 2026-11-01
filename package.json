@@ -5,17 +5,15 @@
   "scripts": {
     "dev": "next dev --hostname 127.0.0.1",
     "build": "next build",
-    "start": "next start --hostname 127.0.0.1",
     "test": "vitest run",
-    "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
-    "deploy": "wrangler d1 migrations apply DB --remote && opennextjs-cloudflare build && opennextjs-cloudflare deploy"
+    "preview": "next build && wrangler dev",
+    "deploy": "wrangler d1 migrations apply DB --remote && next build && wrangler deploy"
   },
   "engines": {
     "node": ">=26.5.0"
   },
   "dependencies": {
     "@libsql/client": "^0.18.0",
-    "@opennextjs/cloudflare": "^1.20.9",
     "drizzle-orm": "^0.45.3",
     "jose": "^6.2.12",
     "next": "^16.3.8",

@@ -23,8 +23,8 @@ vi.mock('../src/db/request-ledger', async () => {
     requestLedger: async () => { if (context.denied) throw new AccessDenied(); return context.ledger!; },
   };
 });
-import * as ingest from '../src/app/api/ingest/route';
-import * as web from '../src/app/api/notifications/route';
+import * as ingest from '../src/app/api/ingest/route.local';
+import * as web from '../src/app/api/notifications/route.local';
 
 const opened: { close(): void }[] = [];
 afterEach(() => { opened.forEach(client => client.close()); opened.length = 0; context.denied = false; vi.restoreAllMocks(); });

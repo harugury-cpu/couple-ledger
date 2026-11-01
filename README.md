@@ -16,17 +16,17 @@ Node.js 26.5 이상이 필요합니다.
 
 ```bash
 npm ci
-cp .env.example .env
-cp wrangler.example.jsonc wrangler.jsonc
+cp -n .env.example .env
 npm run dev
 ```
 
-브라우저에서 `http://127.0.0.1:3000`을 엽니다. 개발·운영 서버는 기본적으로 루프백 주소에만 바인딩합니다.
+브라우저에서 `http://127.0.0.1:3000`을 엽니다. 개발 서버는 루프백 주소에만 바인딩합니다. `next dev`가 화면과 로컬 API를 함께 제공하므로 Cloudflare 설정 없이 개발할 수 있습니다.
 
 - 데이터는 `data/ledger.db`에 저장됩니다. 파일이 없으면 처음 실행할 때 초기 표가 만들어집니다.
 - 저장 위치는 `LEDGER_DB_PATH` 환경변수로 바꿀 수 있습니다.
 - `migrations/*.sql`이 저장 구조의 기준입니다. 로컬에서는 아직 적용하지 않은 마이그레이션만 순서대로 실행합니다.
 - 설정 화면에서 JSON 전체 내보내기와 가져오기를 지원합니다. 가져오기는 현재 데이터를 교체하며, 교체 직전 백업을 `data/backups/`에 남깁니다.
+- `src/app/api/**/route.local.ts`는 개발 phase의 `pageExtensions`에서만 라우트로 인식합니다. 배포용 정적 빌드에는 API 라우트가 포함되지 않습니다.
 
 이미 개인 설정 파일이 있는 환경에서는 예시 파일로 덮어쓰지 마세요.
 
@@ -61,12 +61,18 @@ Content-Type: application/json
 
 ## Cloudflare 배포
 
-Cloudflare Workers, D1, Access를 사용합니다. `wrangler.example.jsonc`를 로컬 `wrangler.jsonc`로 복사한 뒤 자신의 환경에 맞게 설정합니다.
+Cloudflare Workers, D1, Access를 사용합니다. 화면은 `next build`의 정적 export 결과인 `out/`에서 제공하고, `/api/*`는 `worker.ts`가 공용 `handleApi`로 처리합니다. Worker에는 API와 그 의존성만 번들링됩니다.
 
-1. Worker 이름과 `WORKER_SELF_REFERENCE` 서비스 이름을 일치시킵니다.
+```bash
+cp -n wrangler.example.jsonc wrangler.jsonc
+```
+
+로컬 `wrangler.jsonc`를 자신의 환경에 맞게 설정합니다.
+
+1. Worker 이름을 지정합니다. `main`은 `worker.ts`, `assets.directory`는 `out`으로 유지합니다.
 2. D1을 생성하고 `DB` 바인딩의 데이터베이스 이름과 ID를 지정합니다. 예시 ID는 실제 데이터베이스가 아닙니다.
 3. Cloudflare Access 앱에서 접근 허용 대상을 설정합니다.
-4. `ACCESS_TEAM_DOMAIN`과 `ACCESS_AUD`를 지정합니다. 설정 또는 Access 토큰이 없으면 앱은 접근을 거부합니다.
+4. `ACCESS_TEAM_DOMAIN`과 `ACCESS_AUD`를 지정합니다. 일반 API는 설정 또는 유효한 Access 토큰이 없으면 접근을 거부합니다. `/api/ingest`는 전송 토큰을 확인합니다.
 5. 필요한 기능의 비밀값을 서버에 등록하고 배포합니다.
 
 ```bash
@@ -75,7 +81,18 @@ npx wrangler secret put INGEST_TOKEN
 npm run deploy
 ```
 
-`npm run deploy`는 `DB` 바인딩에 마이그레이션을 적용하고 OpenNext 빌드·배포를 수행합니다. 개인 운영 설정은 Git에서 제외되므로, 별도 CI를 연결한다면 해당 환경에도 설정과 비밀값을 직접 제공해야 합니다.
+`npm run deploy`는 원격 `DB`에 마이그레이션을 적용하고 `next build` 후 `wrangler deploy`로 정적 파일과 API Worker를 배포합니다. 정적 파일은 Cloudflare 자산이 Worker보다 먼저 응답합니다. 자산에서 찾지 못한 `/api/*`는 API로 처리하고, 그 밖의 경로는 Worker가 404를 반환합니다. 화면 접근 제한은 Cloudflare Access 앱에서 설정하며, API의 Access 검증은 Worker가 수행합니다.
+
+빌드 phase에만 `output: 'export'`를 적용합니다. `next start`는 사용하지 않으며, 배포 구조의 로컬 미리보기는 다음과 같습니다.
+
+```bash
+npx wrangler d1 migrations apply DB --local
+npm run preview
+```
+
+`npm run preview`는 정적 빌드 후 `wrangler dev`를 실행합니다. 이때는 `data/ledger.db` 대신 Wrangler의 로컬 D1을 사용합니다. 비밀값은 `.dev.vars`에 설정하고, 일반 API 요청에는 유효한 Access 토큰이 필요합니다. 화면과 API를 함께 개발할 때는 `npm run dev`를 사용합니다.
+
+개인 운영 설정은 Git에서 제외되므로, 별도 CI를 연결한다면 해당 환경에도 설정과 비밀값을 직접 제공해야 합니다.
 
 ## 공유용 가상 데모
 
@@ -97,7 +114,9 @@ npm run build
 ## 구조
 
 ```text
-src/app/          화면 진입점과 API
+worker.ts         배포용 API 전용 Worker
+src/app/          정적 화면 진입점과 로컬 개발 전용 API
+src/server/       공용 API 핸들러와 Next 연결 어댑터
 src/components/   월별 표·예산·저축·잔액·설정 화면
 src/db/           저장·월 승계·초기 데이터·저장소 어댑터
 src/demo/         운영 DB와 분리된 가상 데모

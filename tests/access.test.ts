@@ -1,10 +1,10 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { exportJWK, generateKeyPair, SignJWT, type CryptoKey } from 'jose';
+import { AccessDenied, workerRequestContext } from '../src/db/worker-ledger';
 
-// Workers에서 도는 것처럼 꾸민다: navigator.userAgent와 getCloudflareContext의 env.
+// 실제 Worker와 같은 env 연결 어댑터로 Access 인증을 확인한다.
 const env: Record<string, unknown> = {};
-vi.mock('@opennextjs/cloudflare', () => ({ getCloudflareContext: async () => ({ env }) }));
-const { AccessDenied, requestLedger } = await import('../src/db/request-ledger');
+const requestLedger = async (headers: Headers) => (await workerRequestContext(headers, env as unknown as CloudflareEnv)).ledger;
 
 const team = 'wonsonal.cloudflareaccess.com';
 const aud = 'aud-of-ledger-app';
@@ -19,7 +19,6 @@ beforeAll(async () => {
 });
 
 function setup() {
-  vi.stubGlobal('navigator', { userAgent: 'Cloudflare-Workers' });
   vi.stubGlobal('fetch', vi.fn(async (url: string | URL) => {
     expect(String(url)).toBe(`https://${team}/cdn-cgi/access/certs`);
     return new Response(JSON.stringify({ keys: [jwk] }), { headers: { 'content-type': 'application/json' } });
