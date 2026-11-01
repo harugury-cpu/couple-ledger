@@ -13,6 +13,8 @@
   --total: var(--canvas);
   --row-h: 26px;
   --radius-table: var(--radius-button);
+  --transfer-alert: #b42318;
+  --transfer-alert-soft: #fee4e2;
 }
 
 * { box-sizing: border-box; }
@@ -212,6 +214,9 @@ tfoot th, tfoot td { font-weight: 700 !important; background: var(--total); }
 .money-input:hover { border-color: var(--dust); }
 .money-input:focus { border-color: var(--ink); background: var(--white); outline: 0; }
 .money-input.is-empty, .money-input::placeholder { color: var(--dust); }
+/* 이체 금액은 같은 계좌 묶음의 예산 합계와 다를 때 빨갛게 표시한다. */
+.sheet tr.line > .transfer-mismatch, .account-list small.transfer-mismatch { color: var(--transfer-alert); background: var(--transfer-alert-soft); }
+.sheet .transfer-mismatch .money-input { color: var(--transfer-alert); }
 /* 글자 칸(이체 계좌)과 고르는 칸(카테고리): 금액 칸과 같은 방식. 테두리가 글자 자리를 밀지 않게 칸 여백 쪽으로 넓힌다. */
 .text-input, .cell-select { width: calc(100% + 10px); min-width: 0; height: 22px; margin: 0 -5px; padding: 0 4px; border: 1px solid transparent; border-radius: var(--radius-tiny); background: transparent; text-overflow: ellipsis; }
 .cell-select { appearance: none; cursor: pointer; }

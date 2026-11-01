@@ -171,7 +171,8 @@ export function MonthSheet({ lines, transfers, categories, methods, disabled, ed
               {form(transfer.account, <TextCell value={transfer.account} label={`${transfer.account} 이체 계좌 이름`} disabled={disabled}
                 onSave={account => { if (account) void perform({ type: 'transfer', id: transfer.id, account }); }} />)}
             </td>
-            <td className="d num merged" rowSpan={transferSpans[i]} {...pick(`${transfer.id}:t`, 2, transfer.amount)}>
+            <td className={`d num merged${transfer.amount !== transfer.budget ? ' transfer-mismatch' : ''}`} rowSpan={transferSpans[i]} {...pick(`${transfer.id}:t`, 2, transfer.amount)}
+              title={`예산 합계 ${won(transfer.budget)}원 · 이체 금액 ${won(transfer.amount)}원${transfer.amount !== transfer.budget ? ' (불일치)' : ''}`}>
               {form(won(transfer.amount), <MoneyCell value={transfer.amount} label={`${transfer.account} 이체 금액`} disabled={disabled} onError={onError}
                 onSave={amount => { void perform({ type: 'transfer', id: transfer.id, amount: amount ?? 0 }); }} />)}
             </td>
@@ -214,7 +215,8 @@ export function MonthSheet({ lines, transfers, categories, methods, disabled, ed
 
   return <>
     {used.length > 0 && <ul className="account-list" aria-label="계좌별 남은 돈">
-      {used.map(t => <li key={t.id}><span>{t.account}</span><strong className={t.remaining < 0 ? 'minus' : ''}>{won(t.remaining)}</strong><small>/ {won(t.amount)}</small></li>)}
+      {used.map(t => <li key={t.id}><span>{t.account}</span><strong className={t.remaining < 0 ? 'minus' : ''}>{won(t.remaining)}</strong><small className={t.amount !== t.budget ? 'transfer-mismatch' : undefined}
+        title={`예산 합계 ${won(t.budget)}원 · 이체 금액 ${won(t.amount)}원${t.amount !== t.budget ? ' (불일치)' : ''}`}>/ {won(t.amount)}</small></li>)}
     </ul>}
     <datalist id="sheet-methods">{methods.map(m => <option key={m.id} value={m.name} />)}</datalist>
     <datalist id="sheet-accounts">{transfers.map(t => <option key={t.id} value={t.account} />)}</datalist>

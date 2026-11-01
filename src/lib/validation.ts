@@ -14,7 +14,7 @@ export const paymentNotificationFields = {
   cutoff_day: z.number().int().min(1).max(31).optional(),
 };
 const savingOwnerKey = z.enum(['a', 'b', 'extra']);
-// 예전 내보내기의 저축 명의 키를 a, b로 맞춘다. p 앞이면 b, 아니면 a. 이미 a, b, extra인 값은 그대로다.
+// 이전 저장 형식의 저축 명의 키를 a, b로 맞춘다. p 앞이면 b, 아니면 a. 이미 a, b, extra인 값은 그대로다.
 export function canonicalSavingOwner(value: unknown): unknown {
   if (value === null || (typeof value === 'string' && savingOwnerKey.safeParse(value).success)) return value;
   if (typeof value === 'string' && value.length > 0 && value.length <= 32) return value < 'p' ? 'b' : 'a';
@@ -34,11 +34,17 @@ export type LineInput = z.input<typeof lineFields>;
 const transferAccount = z.string().trim().max(120).nullable().optional();
 // 처음 적은 결제수단 이름: 있으면 그 이름의 결제수단을 찾거나 만들어 payment_method_id 대신 쓴다.
 const paymentName = nameValue.optional();
+// 배포 전부터 열려 있던 화면도 저장할 수 있도록, 요청 경계에서 이전 명의 키를 DB·백업과 같은 기준으로 바꾼다.
+const commandLineFields = z.preprocess(value => {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return value;
+  const fields = value as Record<string, unknown>;
+  return { ...fields, saving_owner: canonicalSavingOwner(fields.saving_owner) };
+}, lineFields);
 export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('amount'), id: z.string(), amount: signedMoney.nullable() }),
   z.object({ type: z.literal('budget'), id: z.string(), amount: money, future: z.boolean().optional() }),
-  z.object({ type: z.literal('create'), year: yearValue, month: monthValue, fields: lineFields, amount: signedMoney.optional(), transfer_account: transferAccount, future: z.boolean().optional(), payment_name: paymentName }),
-  z.object({ type: z.literal('update'), id: z.string(), fields: lineFields, future: z.boolean().optional(), transfer_account: transferAccount, payment_name: paymentName }),
+  z.object({ type: z.literal('create'), year: yearValue, month: monthValue, fields: commandLineFields, amount: signedMoney.optional(), transfer_account: transferAccount, future: z.boolean().optional(), payment_name: paymentName }),
+  z.object({ type: z.literal('update'), id: z.string(), fields: commandLineFields, future: z.boolean().optional(), transfer_account: transferAccount, payment_name: paymentName }),
   z.object({ type: z.literal('transfer'), id: z.string(), account: nameValue.optional(), amount: money.optional() }),
   z.object({ type: z.literal('payment'), ids: z.array(z.string()).min(1).max(200), pay_day: z.number().int().min(1).max(31).nullable(), payment_method_id: z.string().nullable(), future: z.boolean().optional(), payment_name: paymentName }),
   z.object({ type: z.literal('delete'), id: z.string(), future: z.boolean().optional() }),

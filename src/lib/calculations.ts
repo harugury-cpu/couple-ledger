@@ -24,7 +24,7 @@ export function transferRows(lines: ComputedLine[], transfers: Transfer[]) {
   return transfers.map(t => {
     const own = lines.filter(l => l.year === t.year && l.month === t.month && l.transfer_key === t.series_id);
     const spent = safeSum(own.map(l => l.actual));
-    return { ...t, lineCount: own.length, spent, remaining: safeSum([t.amount, -spent]) };
+    return { ...t, lineCount: own.length, budget: total(own).budget, spent, remaining: safeSum([t.amount, -spent]) };
   });
 }
 export function monthTotals(lines: ComputedLine[]) {
