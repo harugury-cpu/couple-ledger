@@ -20,6 +20,8 @@ type Props = {
   disabled: boolean; editId: string | null;
   perform: (command: object) => Promise<unknown>; onEdit: (id: string) => void; onError: (message: string) => void;
   applyFuture: (series: string | string[]) => boolean;
+  // 이후 달이 이미 만들어진 줄 묶음(series_id). [이후 달에도 반영] 버튼을 켤지 정한다.
+  futureSeries: string[];
   // 구역 맨 아래 빈 줄에 적은 내용으로 그 구역에 새 줄을 만든다. 만들어지면 true.
   onCreate: (section: Section, line: NewLine) => Promise<boolean>;
 };
@@ -52,7 +54,7 @@ const subscribe = (change: () => void) => { const m = matchMedia(phoneQuery); m.
 const usePhone = () => useSyncExternalStore(subscribe, () => matchMedia(phoneQuery).matches, () => false);
 
 // Numbers 시트와 같은 순서: 고정생활비 → 가변생활비 → 저축 → 총 지출 → 수입 → 총 수입 → 수입-지출
-export function MonthSheet({ year, month, merges, history, lines: sourceLines, transfers, categories, methods, disabled, editId, perform, onEdit, onError, applyFuture, onCreate }: Props) {
+export function MonthSheet({ year, month, merges, history, lines: sourceLines, transfers, categories, methods, disabled, editId, perform, onEdit, onError, applyFuture, futureSeries, onCreate }: Props) {
   // 아래의 모든 행 번호(병합·선택·붙여넣기)는 화면에 그리는 구역 순서를 기준으로 한다.
   const lines = sheetOrder(sourceLines);
   const methodName = new Map(methods.map(m => [m.id, m.name]));
@@ -81,9 +83,6 @@ export function MonthSheet({ year, month, merges, history, lines: sourceLines, t
   const splitButton = (label: string, rows: ComputedLine[], split: (rest: ComputedLine[]) => Promise<unknown>) => rows.length > 1 && !phone &&
     <button type="button" className="merge-split" disabled={disabled} title="병합 해제: 맨 윗줄만 남기고 아랫줄 칸을 비웁니다" aria-label={`${label} 병합 해제`}
       onClick={() => { void split(rows.slice(1)); }}>분리</button>;
-  const future = (rows: ComputedLine[]) => applyFuture(rows.map(r => r.series_id));
-  // 이체 묶음의 이후 달: 묶음에 든 줄 중 하나라도 이후 달이 만들어져 있으면 묻는다.
-  const transferFuture = (key: string) => applyFuture(lines.filter(l => l.transfer_key === key).map(l => l.series_id));
 
   const paymentLabel = (l: ComputedLine) => {
     const method = l.payment_method_id ? methodName.get(l.payment_method_id) : undefined;
@@ -118,6 +117,17 @@ export function MonthSheet({ year, month, merges, history, lines: sourceLines, t
     ];
   });
   const tools = useSheetTools({ year, month, lines, values, merges: merges.filter(m => m.month === month), automatic, disabled, phone, perform, onError });
+  // [이후 달에도 반영]: 고른 칸이 있는 줄과, 이체 칸(5·6·7열)을 고른 이체 묶음. 이후 달이 만들어진 것만 대상이다.
+  const pickedCells = [...tools.picked].map(key => key.split(':').map(Number));
+  const laterLines = [...new Set(pickedCells.map(([row]) => lines[row]))]
+    .filter(l => l && !l.series_id.startsWith('special:') && futureSeries.includes(l.series_id));
+  const laterTransfers = [...new Set(pickedCells.filter(([, col]) => col >= 5).map(([row]) => lines[row]?.transfer_key))]
+    .flatMap(key => { const t = key ? transferOf.get(key) : undefined; return t && lines.some(l => l.transfer_key === key && futureSeries.includes(l.series_id)) ? [t] : []; });
+  const propagate = () => {
+    const parts = [laterLines.length && `${laterLines.length}줄`, laterTransfers.length && `이체 ${laterTransfers.length}건`].filter(Boolean).join('과 ');
+    if (confirm(`고른 ${parts}의 지금 내용을 이미 만들어진 이후 달에도 똑같이 맞출까요?\n(수단·항목·카테고리·예산·이체 계좌·이체 금액. 실제로 쓴 금액은 바꾸지 않습니다.)`))
+      void perform({ type: 'propagate', ids: laterLines.map(l => l.id), transfer_ids: laterTransfers.map(t => t.id) });
+  };
 
   function sectionRows(key: Section) {
     const group = lines.filter(l => l.section === key);
@@ -135,11 +145,11 @@ export function MonthSheet({ year, month, merges, history, lines: sourceLines, t
       const cells = [
         <td className="d merged">
           {form(paymentLabel(l), <TextCell value={paymentLabel(l)} label={`${l.name} 수단`} list="sheet-methods" disabled={disabled || special} onSave={text => {
-            try { void perform({ type: 'payment', ids: paymentRows.filter(g => !g.series_id.startsWith('special:')).map(g => g.id), ...parsePayment(text, methods), future: applyFuture(paymentRows.map(g => g.series_id)) }); }
+            try { void perform({ type: 'payment', ids: paymentRows.filter(g => !g.series_id.startsWith('special:')).map(g => g.id), ...parsePayment(text, methods) }); }
             catch (e) { onError(e instanceof Error ? e.message : '수단을 확인하세요.'); }
           }} />)}
           {splitButton(`${l.name} 수단`, paymentRows, async rest => {
-            await perform({ type: 'payment', ids: rest.filter(g => !g.series_id.startsWith('special:')).map(g => g.id), pay_day: null, payment_method_id: null, future: future(rest) });
+            await perform({ type: 'payment', ids: rest.filter(g => !g.series_id.startsWith('special:')).map(g => g.id), pay_day: null, payment_method_id: null });
           })}
         </td>,
         <th scope="row" className="name" title={l.name}>
@@ -158,35 +168,34 @@ export function MonthSheet({ year, month, merges, history, lines: sourceLines, t
         </th>,
         <td className="d">
           {form(l.category_id ? categoryName.get(l.category_id) : '', <select className={`cell-select${l.category_id ? '' : ' is-empty'}`} aria-label={`${l.name} 카테고리`} value={l.category_id ?? ''} disabled={disabled || special}
-            onChange={e => { void perform({ type: 'update', id: l.id, fields: { ...fieldsOf(l), category_id: e.target.value || null }, future: applyFuture(l.series_id) }); }}>
+            onChange={e => { void perform({ type: 'update', id: l.id, fields: { ...fieldsOf(l), category_id: e.target.value || null } }); }}>
             <option value="">—</option>{categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>)}
         </td>,
         <td className="num" title={l.effectiveBudget !== l.budget ? `특별 지출 조정 후 ${won(l.effectiveBudget)}` : undefined}>
           {form(won(l.budget), <MoneyCell value={l.budget} label={`${l.name} 기본 예산`} disabled={disabled || special} onError={onError}
-            onSave={amount => { void perform({ type: 'budget', id: l.id, amount: amount ?? 0, future: applyFuture(l.series_id) }); }} />)}
+            onSave={amount => { void perform({ type: 'budget', id: l.id, amount: amount ?? 0 }); }} />)}
           {l.effectiveBudget !== l.budget && <small className="adjusted">조정 후 {won(l.effectiveBudget)}</small>}
         </td>,
         <td className="num"><MoneyCell value={l.hasEntry ? l.actual : null} signed label={`${l.name} 금액`} disabled={disabled || special} onError={onError}
-          onSave={amount => { void perform({ type: 'amount', id: l.id, amount, future: l.input_mode === 'fixed' && amount !== null && applyFuture(l.series_id) }); }} /></td>,
+          onSave={amount => { void perform({ type: 'amount', id: l.id, amount }); }} /></td>,
         ...(transfer ? [
           <td className="d merged">
             {form(transfer.account, <TextCell value={transfer.account} label={`${transfer.account} 이체 계좌 이름`} disabled={disabled}
-              onSave={account => { if (account) void perform({ type: 'transfer', id: transfer.id, account, future: transferFuture(transfer.series_id) }); }} />)}
+              onSave={account => { if (account) void perform({ type: 'transfer', id: transfer.id, account }); }} />)}
             {splitButton(`${transfer.account} 이체 계좌`, accountRows, async rest => {
-              const apply = future(rest);
-              for (const r of rest) if (!await perform({ type: 'update', id: r.id, fields: fieldsOf(r), future: apply, transfer_account: '' })) return;
+              for (const r of rest) if (!await perform({ type: 'update', id: r.id, fields: fieldsOf(r), transfer_account: '' })) return;
             })}
           </td>,
           <td className={`d num merged${transfer.amount !== transfer.budget ? ' transfer-mismatch' : ''}`}
             title={`예산 합계 ${won(transfer.budget)}원 · 이체 금액 ${won(transfer.amount)}원${transfer.amount !== transfer.budget ? ' (불일치)' : ''}`}>
             {form(won(transfer.amount), <MoneyCell value={transfer.amount} label={`${transfer.account} 이체 금액`} disabled={disabled} onError={onError}
-              onSave={amount => { void perform({ type: 'transfer', id: transfer.id, amount: amount ?? 0, future: transferFuture(transfer.series_id) }); }} />)}
+              onSave={amount => { void perform({ type: 'transfer', id: transfer.id, amount: amount ?? 0 }); }} />)}
           </td>,
           <td className={`d num merged remaining ${transfer.remaining < 0 ? 'minus' : transfer.remaining === 0 ? 'zero' : ''}`} title={`이체 ${won(transfer.amount)} − 쓴 돈 ${won(transfer.spent)}`}>{won(transfer.remaining)}</td>,
         ] : [
           <td className="d">{form('', <TextCell value="" label={`${l.name} 이체 계좌`} disabled={disabled || special}
-            onSave={account => { void perform({ type: 'update', id: l.id, fields: fieldsOf(l), future: applyFuture(l.series_id), transfer_account: account }); }} />)}</td>,
+            onSave={account => { void perform({ type: 'update', id: l.id, fields: fieldsOf(l), transfer_account: account }); }} />)}</td>,
           <td className="d" />, <td className="d" />,
         ]),
       ];
@@ -233,6 +242,8 @@ export function MonthSheet({ year, month, merges, history, lines: sourceLines, t
       <button type="button" disabled={disabled || !tools.picked.size} title="선택한 셀부터 붙여넣기 (Ctrl/⌘+V)" onClick={() => { void tools.paste(); }}>붙여넣기</button>
       <button type="button" disabled={disabled || !tools.canMerge} title="왼쪽 위 값을 표시하고 나머지 값은 보존합니다" onClick={() => { void tools.merge(); }}>셀 병합</button>
       <button type="button" disabled={disabled || tools.editing || !tools.selectedMerges.length} onClick={() => { void tools.unmerge(); }}>병합 해제</button>
+      <span className="tool-divider" />
+      <button type="button" disabled={disabled || tools.editing || (!laterLines.length && !laterTransfers.length)} title="고른 줄의 지금 내용을 이미 만들어진 이후 달에도 맞춥니다" onClick={propagate}>이후 달에도 반영</button>
       {phone && <button type="button" aria-pressed={tools.touchSelection} onClick={() => tools.setTouchSelection(!tools.touchSelection)}>셀 선택</button>}
       <span className="selection-info" role="status">{tools.picked.size ? `${tools.picked.size}칸 선택${tools.numericCount ? ` · 합계 ${won(tools.total)}` : ''}` : phone ? '셀 선택을 켜고 범위의 양 끝을 누르세요' : '클릭 선택 · 두 번 클릭 편집'}</span>
     </div>

@@ -38,6 +38,7 @@ export async function runLedgerCommand(l: LedgerCore, cmd: z.infer<typeof comman
     case 'quick': entry_id = await l.quickEntry(cmd.id, cmd.amount, cmd.raw); break;
     case 'undo': await l.undoQuick(cmd.entry_id); break;
     case 'delete': await l.deleteLine(cmd.id, cmd.future); break;
+    case 'propagate': await l.propagate(cmd.ids, cmd.transfer_ids); break;
     case 'account-save': await l.saveAccount(cmd.name, cmd.kind, cmd.target, cmd.id); break;
     case 'account-delete': await l.deleteAccount(cmd.id); break;
     case 'balance': await l.setBalance(cmd.id, cmd.year, cmd.month, cmd.amount); break;

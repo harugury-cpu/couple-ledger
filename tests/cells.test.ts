@@ -156,3 +156,25 @@ test('구역이 섞인 sort에서도 표 행 번호는 화면의 구역 순서�
   ];
   expect(sheetOrder(rows).map(r => r.id)).toEqual(['a', 'c', 'f', 'b', 'e', 'd']);
 });
+
+test('[이후 달에도 반영]은 고른 줄 내용만 이후 달에 맞추고, 실행 취소 한 번으로 되돌린다', async () => {
+  const { l, id } = await setup(); await l.ensureMonth(2026, 3);
+  const line = (await l.month(2026, 1)).find(r => r.id === id)!;
+  const other = (await l.month(2026, 1)).find(r => r.section === 'variable' && r.id !== id)!;
+  // 칸 편집은 이번 달만 바뀐다.
+  await action(l, { type: 'budget', id, amount: 777 });
+  await action(l, { type: 'budget', id: other.id, amount: 555 });
+  const later = async (series: string) => (await l.month(2026, 3)).find(r => r.series_id === series)!;
+  expect((await later(line.series_id)).budget).not.toBe(777);
+  const before = await data(l);
+  const done = await action(l, { type: 'propagate', ids: [id], transfer_ids: [] });
+  expect((await later(line.series_id)).budget).toBe(777);
+  expect((await later(other.series_id)).budget).not.toBe(555);
+  // 실제로 쓴 금액은 옮기지 않는다.
+  const febLine = (await l.month(2026, 2)).find(r => r.series_id === line.series_id)!;
+  const feb = (await l.snapshot(2026, 2)).entries.filter(e => e.month_line_id === febLine.id);
+  expect(feb.some(e => e.amount === 20)).toBe(false);
+  await applyEditHistory(l, done.history_id!, 'undo');
+  const sorted = (d: Record<string, unknown[]>) => Object.fromEntries(Object.entries(d).map(([k, rows]) => [k, rows.map(r => JSON.stringify(r)).sort()]));
+  expect(sorted(await data(l))).toEqual(sorted(before));
+});

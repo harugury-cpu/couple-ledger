@@ -187,7 +187,7 @@ export function LedgerApp({ initial }: { initial?: Snapshot }) {
       <SpecialPanel data={data} month={month} busy={disabled} perform={perform} />
       <MonthSheet key={`${year}-${month}`} year={year} month={month} merges={data.cellMerges ?? []} lines={lines} transfers={transfers} categories={data.categories} methods={data.paymentMethods} disabled={disabled} editId={edit}
         history={{ canUndo: history.undo.length > 0, canRedo: history.redo.length > 0, undo: () => historyShortcut.current('undo'), redo: () => historyShortcut.current('redo') }}
-        perform={perform} onEdit={id => setEdit(edit === id ? null : id)} onError={setError} applyFuture={applyFuture}
+        perform={perform} onEdit={id => setEdit(edit === id ? null : id)} onError={setError} applyFuture={applyFuture} futureSeries={data.futureSeries}
         onCreate={async (section, line) => !!await perform({ type: 'create', year, month, amount: line.amount ?? undefined, transfer_account: line.transfer || undefined, future: createInFuture(), payment_name: line.payment_name,
           fields: { name: line.name, section, category_id: line.category_id, payment_method_id: line.payment_method_id, pay_day: line.pay_day, budget: line.budget, input_mode: 'manual', saving_owner: section === 'saving' ? 'extra' : null, one_off: false } })} />
       <p className="table-note">단위: 원 · 항목명을 누르면 줄을 고치고, 왼쪽 손잡이를 끌면 순서를 옮깁니다. 처음 적은 결제수단은 자동으로 추가됩니다. 금액을 비우면 미입력으로 돌아갑니다. 남음 = 이체 계좌에 옮긴 돈 − 그 묶음에서 쓴 돈.</p>

@@ -53,6 +53,8 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('transfer'), id: z.string(), account: nameValue.optional(), amount: money.optional(), future: z.boolean().optional() }),
   z.object({ type: z.literal('payment'), ids: z.array(z.string()).min(1).max(200), pay_day: z.number().int().min(1).max(31).nullable(), payment_method_id: z.string().nullable(), future: z.boolean().optional(), payment_name: paymentName }),
   z.object({ type: z.literal('delete'), id: z.string(), future: z.boolean().optional() }),
+  // 선택한 줄(과 이체 묶음)의 지금 내용을 이후 달에도 맞춘다.
+  z.object({ type: z.literal('propagate'), ids: z.array(z.string()).max(200), transfer_ids: z.array(z.string()).max(50) }),
   // 같은 구역 안에서 줄을 index 자리(그 줄을 뺀 구역 안 순서, 0부터)로 옮긴다.
   z.object({ type: z.literal('move'), id: z.string(), index: z.number().int().min(0).max(10_000) }),
   z.object({ type: z.literal('quick'), id: z.string(), amount: signedMoney, raw: z.string().max(500) }),

@@ -598,6 +598,21 @@ export class LedgerCore {
 
   // ── 이체 계좌 ────────────────────────────────────────────
   // future: 이미 만든 이후 달의 같은 묶음(같은 series)에도 계좌 이름·금액을 반영한다.
+  // [이후 달에도 반영] 버튼: 고른 줄의 지금 내용(수단·항목·카테고리·예산·입력 방식·이체 계좌)과
+  // 고른 이체 묶음의 이름·금액을 이후 달의 같은 줄·묶음에 맞춘다. 실제로 쓴 금액(entries)은 달마다 따로라 옮기지 않는다.
+  async propagate(ids: string[], transferIds: string[]) {
+    if (!ids.length && !transferIds.length) throw new InputError('이후 달에 반영할 줄을 고르세요.');
+    await this.init();
+    for (const id of ids) {
+      const l = await this.editableLine(id);
+      await this.updateLine(id, { name: l.name, section: l.section, category_id: l.category_id, payment_method_id: l.payment_method_id,
+        pay_day: l.pay_day, budget: l.budget, input_mode: l.input_mode, saving_owner: l.saving_owner, one_off: l.one_off }, true);
+    }
+    for (const id of transferIds) {
+      const t = await this.resolveTransfer(id);
+      await this.saveTransfer(id, { account: t.account, amount: t.amount }, true);
+    }
+  }
   async saveTransfer(id: string, changes: { account?: string; amount?: number }, future = false) {
     if (changes.amount !== undefined) money.parse(changes.amount);
     const account = changes.account === undefined ? undefined : nameValue.parse(changes.account);
