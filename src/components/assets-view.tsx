@@ -15,6 +15,8 @@ type Props = {
   history: { canUndo: boolean; canRedo: boolean; undo: () => void; redo: () => void };
 };
 const signed = (n: number) => `${n > 0 ? '+' : ''}${won(n)}`;
+// 자산의 손익 색: 오르면 빨강, 내리면 파랑(증권 앱과 같은 관례). 자산 탭에서만 쓴다.
+const trend = (n: number | null) => n === null || n === 0 ? '' : n > 0 ? ' rise' : ' fall';
 const rate = (change: number, base: number) => base > 0 ? ` (${change > 0 ? '+' : ''}${(change / base * 100).toFixed(1)}%)` : '';
 function seoulToday() {
   const iso = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
@@ -113,7 +115,7 @@ export function AssetsView({ data, busy, perform, onError, history }: Props) {
         <div><dt>총 자산(묶인 돈 포함)</dt><dd>{won(totals.total)}</dd></div>
         <div><dt>묶인 돈</dt><dd>{won(totals.locked)}</dd></div>
         <div><dt>넣은 원금</dt><dd>{won(totals.principal)}</dd></div>
-        <div><dt>증감</dt><dd className={totals.change < 0 ? 'minus' : ''}>{signed(totals.change)}<span>{rate(totals.change, totals.principal)}</span></dd></div>
+        <div><dt>증감</dt><dd className={trend(totals.change).trim()}>{signed(totals.change)}<span>{rate(totals.change, totals.principal)}</span></dd></div>
       </dl>
     </section>
     {(edit === 'new' || editing) && <div className="edit-panel balance-panel"><h3>{editing ? `${editing.name} 수정` : '새 계좌'}</h3>
@@ -163,7 +165,7 @@ export function AssetsView({ data, busy, perform, onError, history }: Props) {
                 onSave={amount => { void perform({ type: 'balance', id: r.account.id, year: today.year, month: today.month, amount, checked_on: amount === null ? null : today.iso }); }} />
               <small>{checked(r.checkedOn, data.year) ?? '적은 값 없음'}</small></>
             : <span className="muted">{won(r.principal)}<small>원금과 같음</small></span>}</td>,
-          <td className={`numeric stick-r r0${r.change !== null && r.change < 0 ? ' minus' : ''}`} style={pin(count - 1)}>
+          <td className={`numeric stick-r r0${trend(r.change)}`} style={pin(count - 1)}>
             {r.change === null ? <span className="muted">—</span> : <>{signed(r.change)}<small>{rate(r.change, r.principal).trim()}</small></>}</td>,
         ].map((cell, col) => tools.cell(row, col, cell))}
       </tr>)}</tbody>
@@ -171,7 +173,7 @@ export function AssetsView({ data, busy, perform, onError, history }: Props) {
         <th scope="row">합계</th><td className="numeric">{won(rows.reduce((sum, r) => sum + r.opening, 0))}</td>
         {visible.map((m, i) => { const sum = monthSum(i); return <td key={m} className={`numeric${rows[0]?.months[i].future ? ' future' : ''}`}>{sum === null ? '' : won(sum)}</td>; })}
         <td className="numeric stick-r r2" style={pin(totalCol)}>{won(totals.principal)}</td><td className="numeric asset-key stick-r r1" style={pin(valueCol)}>{won(totals.value)}</td>
-        <td className={`numeric stick-r r0${totals.change < 0 ? ' minus' : ''}`} style={pin(count - 1)}>{signed(totals.change)}</td>
+        <td className={`numeric stick-r r0${trend(totals.change)}`} style={pin(count - 1)}>{signed(totals.change)}</td>
       </tr></tfoot>
     </table></div>
       : <p className="muted empty-chart">토스·ISA·적금처럼 돈을 넣는 계좌를 추가하고 월별 표의 저축 줄을 연결하면, 달마다 넣은 원금과 평가금액·증감이 여기에 보입니다.</p>}

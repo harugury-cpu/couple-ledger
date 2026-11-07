@@ -15,6 +15,8 @@
   --radius-table: var(--radius-button);
   --transfer-alert: #b42318;
   --transfer-alert-soft: #fee4e2;
+  --rise: #d0312d;          /* 자산 손익: 오름(빨강) */
+  --fall: #2559c9;          /* 자산 손익: 내림(파랑) */
 }
 
 * { box-sizing: border-box; }
@@ -330,8 +332,12 @@ label input, label select { width: 100%; min-width: 0; height: 32px; border: 1px
 .asset-table td.before { background: var(--canvas); }
 /* 아직 오지 않은 달: 회색, 총 원금에 넣지 않는다 */
 .asset-table td.future, .asset-table td.future .money-input { color: var(--dust); }
-/* 강조 칸은 평가금액: 지금 실제로 가진 돈 */
-.asset-table .asset-key { background: var(--total); font-weight: 500; }
+/* 강조 칸은 평가금액: 지금 실제로 가진 돈. 굵게 */
+.asset-table .asset-key, .asset-table .asset-key .money-input { background: var(--total); font-weight: 700; }
+.asset-table td.asset-key .money-input { background: transparent; }
+/* 손익 색: 오르면 빨강, 내리면 파랑 */
+.asset-table .rise, .asset-hero .rise { color: var(--rise); }
+.asset-table .fall, .asset-hero .fall { color: var(--fall); }
 .asset-table thead .asset-key { background: var(--ink); }
 .asset-table td small, .locked-table td small { display: block; font-size: 10px; line-height: 1.1; color: var(--slate); }
 .asset-table td.asset-value { min-width: 128px; }
