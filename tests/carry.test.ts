@@ -12,10 +12,10 @@ it('직전 달 승계·고정액 자동 기록·일회성 제외·중복 방지'
   const february = await l.month(2026, 2); await l.month(2026, 2);
   expect(february).toHaveLength(28); expect(february.some(r => r.series_id === series_id)).toBe(false);
   const snapshot = await l.snapshot(2026, 2); const computed = computeLines(snapshot.lines.filter(r => r.month === 2), snapshot.entries, snapshot.adjustments);
-  // 용돈 B는 자동 줄: 1월에 고친 금액 1700이 예산이 되어 2월에 이어진다.
-  expect(computed.find(r => r.name === '용돈 B')).toMatchObject({ actual: 1700, budget: 1700 });
+  // 용돈 B는 매달 같은 금액 줄: 1월에 적은 금액 1700이 2월 금액으로 이어지고, 예산은 1월 예산 2000을 이어받는다.
+  expect(computed.find(r => r.name === '용돈 B')).toMatchObject({ actual: 1700, budget: 2000 });
   expect(computed.find(r => r.name === '가스비')?.hasEntry).toBe(false);
-  expect((await l.month(2026, 1)).find(r => r.id === allowance.id)?.budget).toBe(1700);
+  expect((await l.month(2026, 1)).find(r => r.id === allowance.id)?.budget).toBe(2000);
 });
 it('월을 건너뛰거나 연도를 넘어도 직전 달을 이어받는다', async () => {
   l = new Ledger(':memory:'); const [line] = await l.month(2026, 11); await l.setBudget(line.id, 400);

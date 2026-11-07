@@ -252,3 +252,19 @@ it('Workers용 모듈(ledger-d1)은 node 전용 모듈을 가져오지 않는다
   expect(banned).toEqual([]);
   expect([...seen].some(f => f.endsWith('ledger-core.ts'))).toBe(true);
 });
+
+it('예산은 바꾼 달 뒤로 이어지고 따로 정한 달에서 멈추며, 금액을 고쳐도 예산은 그대로다', async () => {
+  const l = make(); await l.ensureMonth(2027, 1);
+  const series = (await l.month(2026, 10)).find(r => r.section === 'saving' && r.input_mode === 'fixed')!.series_id;
+  const at = async (year: number, month: number) => (await l.month(year, month)).find(r => r.series_id === series)!;
+  const original = (await at(2026, 10)).budget;
+  await l.setBudget((await at(2026, 12)).id, 777);
+  await l.setBudget((await at(2026, 11)).id, 500);
+  expect([(await at(2026, 10)).budget, (await at(2026, 11)).budget, (await at(2026, 12)).budget, (await at(2027, 1)).budget]).toEqual([original, 500, 777, 777]);
+  // 매달 같은 금액 줄의 금액을 고쳐도 예산은 바뀌지 않는다.
+  await l.setAmount((await at(2026, 11)).id, 123);
+  expect((await at(2026, 11)).budget).toBe(500);
+  // 표에서 예산 칸을 고쳐도 같은 규칙이다.
+  await l.editCells(2026, 12, [{ id: (await at(2026, 12)).id, col: 3, value: '900' }]);
+  expect([(await at(2026, 11)).budget, (await at(2026, 12)).budget, (await at(2027, 1)).budget]).toEqual([500, 900, 900]);
+});

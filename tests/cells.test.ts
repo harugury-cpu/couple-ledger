@@ -161,15 +161,17 @@ test('[이후 달에도 반영]은 고른 줄 내용만 이후 달에 맞추고,
   const { l, id } = await setup(); await l.ensureMonth(2026, 3);
   const line = (await l.month(2026, 1)).find(r => r.id === id)!;
   const other = (await l.month(2026, 1)).find(r => r.section === 'variable' && r.id !== id)!;
-  // 칸 편집은 이번 달만 바뀐다.
+  // 예산은 뒤 달로 이어진다. 3월에 따로 정한 예산이 있으면 거기서 멈추고, [이후 달에도 반영]으로 덮어쓸 수 있다.
+  const later = async (series: string) => (await l.month(2026, 3)).find(r => r.series_id === series)!;
+  await action(l, { type: 'budget', id: (await later(line.series_id)).id, amount: 333 });
   await action(l, { type: 'budget', id, amount: 777 });
   await action(l, { type: 'budget', id: other.id, amount: 555 });
-  const later = async (series: string) => (await l.month(2026, 3)).find(r => r.series_id === series)!;
-  expect((await later(line.series_id)).budget).not.toBe(777);
+  expect((await l.month(2026, 2)).find(r => r.series_id === line.series_id)!.budget).toBe(777);
+  expect((await later(line.series_id)).budget).toBe(333);
+  expect((await later(other.series_id)).budget).toBe(555);
   const before = await data(l);
   const done = await action(l, { type: 'propagate', ids: [id], transfer_ids: [] });
   expect((await later(line.series_id)).budget).toBe(777);
-  expect((await later(other.series_id)).budget).not.toBe(555);
   // 실제로 쓴 금액은 옮기지 않는다.
   const febLine = (await l.month(2026, 2)).find(r => r.series_id === line.series_id)!;
   const feb = (await l.snapshot(2026, 2)).entries.filter(e => e.month_line_id === febLine.id);

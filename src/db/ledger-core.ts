@@ -190,7 +190,6 @@ export class LedgerCore {
     const patches = new Map<string, Partial<s.MonthLine>>();
     const amounts = new Map<string, number | null>();
     const transferAmounts: { id: string; amount: number }[] = [];
-    const explicitBudget = new Set(changes.filter(c => c.col === 3).map(c => c.id));
     const methods = [...snapshot.paymentMethods]; const newMethods: s.PaymentMethod[] = [];
     const transfers = snapshot.transfers.filter(t => t.month === month); const newTransfers: s.Transfer[] = [];
     const seen = new Set<string>();
@@ -245,7 +244,6 @@ export class LedgerCore {
       const patch = patches.get(line.id);
       if (!patch) return line;
       const amount = amounts.get(line.id);
-      if (line.input_mode === 'fixed' && amount !== undefined && amount !== null && amount >= 0 && !explicitBudget.has(line.id)) patch.budget = amount;
       if (patch.budget !== undefined && patch.budget + safeSum(snapshot.adjustments.filter(a => a.month_line_id === line.id).map(a => a.amount)) < 0) throw new InputError('특별 지출로 옮긴 예산보다 기본 예산이 작습니다.');
       const fields = Object.keys(patch) as (keyof s.MonthLine)[];
       if (fields.length) {
@@ -282,6 +280,10 @@ export class LedgerCore {
         WHERE ${amount} - total <> 0 OR n=0`));
       const line = updated.find(l => l.id === id)!;
       if (amount !== null && line.input_mode === 'fixed') writes.push(...await this.followAmount(line, amount));
+    }
+    for (const line of updated) {
+      const before = originals.get(line.id)!;
+      if (patches.get(line.id)?.budget !== undefined) writes.push(...await this.followBudget(before, before.budget, line.budget));
     }
     writes.push(...this.transferWrites(year, month, updated, transfers, newTransfers), ...this.pruneMerges(year, month), ...extra);
     await this.store.batch(writes);
@@ -350,6 +352,21 @@ export class LedgerCore {
     return byLine;
   }
 
+  // 예산을 바꾸면 뒤 달 중 바꾸기 전 예산과 같던 달까지 새 예산으로 이어 쓴다. 앞 달은 그대로이고,
+  // 따로 다른 예산을 정해 둔 달을 만나면 멈춘다(그 달부터는 그 달 예산이 이어진다).
+  private async followBudget(line: s.MonthLine, before: number, budget: number): Promise<Statement[]> {
+    if (before === budget) return [];
+    const later = (await this.db.select().from(s.monthLines).where(and(eq(s.monthLines.series_id, line.series_id), sql`${s.monthLines.year} * 12 + ${s.monthLines.month} > ${line.year * 12 + line.month}`)))
+      .sort((x, y) => (x.year * 12 + x.month) - (y.year * 12 + y.month));
+    const follow: s.MonthLine[] = [];
+    for (const l of later) { if (l.budget !== before) break; follow.push(l); }
+    if (!follow.length) return [];
+    for (const a of await this.adjustmentsWhere(inArray(s.monthLines.id, follow.map(l => l.id)))) {
+      if (budget + a.amount < 0) throw new InputError('뒤 달에 특별 지출로 옮긴 예산보다 기본 예산이 작습니다. 그 달 특별 지출을 먼저 취소하세요.');
+    }
+    return [toStatement(this.db.update(s.monthLines).set({ budget }).where(inArray(s.monthLines.id, follow.map(l => l.id))))];
+  }
+
   // 자동 줄에 금액을 적으면 그 뒤 달들의 자동 금액을 그 값으로 이어 쓴다. 앞 달은 그대로 둔다.
   // 손으로 적은 금액(manual·quick·paste)이 있거나 비워 둔 달, 자동이 아닌 달을 만나면 멈춘다: 그 달부터는 그 달 값이 이어진다.
   private async followAmount(line: s.MonthLine, amount: number): Promise<Statement[]> {
@@ -374,14 +391,8 @@ export class LedgerCore {
     await this.init();
     const line = await this.editableLine(id);
     if (amount === null) { await this.store.batch([toStatement(this.db.delete(s.entries).where(eq(s.entries.month_line_id, line.id)))]); return; }
-    const carry: Statement[] = [];
-    if (line.input_mode === 'fixed' && amount >= 0) {
-      for (const change of (await this.budgetChanges(line, future)).values()) {
-        if (amount + change < 0) throw new InputError('특별 지출로 옮긴 예산보다 금액이 작습니다. 특별 지출을 먼저 취소하세요.');
-      }
-      carry.push(toStatement(this.db.update(s.monthLines).set({ budget: amount }).where(this.target(line, future))));
-    }
-    if (line.input_mode === 'fixed') carry.push(...await this.followAmount(line, amount));
+    // 금액은 예산을 바꾸지 않는다. '매달 같은 금액' 줄이면 적은 금액이 뒤 달로 이어진다.
+    const carry: Statement[] = line.input_mode === 'fixed' ? await this.followAmount(line, amount) : [];
     // 최종 금액과 지금까지 기록 합계의 차이를 한 문장 안에서 계산한다. 같은 칸을 동시에 저장해도 합계가 틀어지지 않는다.
     // 차이가 0이고 기록이 이미 있으면 아무것도 넣지 않는다.
     const memberId = await this.memberId();
@@ -396,7 +407,8 @@ export class LedgerCore {
     for (const change of (await this.budgetChanges(line, future)).values()) {
       if (amount + change < 0) throw new InputError('특별 지출로 옮긴 예산보다 기본 예산이 작습니다. 특별 지출을 먼저 취소하세요.');
     }
-    await this.store.batch([toStatement(this.db.update(s.monthLines).set({ budget: amount }).where(this.target(line, future)))]);
+    await this.store.batch([toStatement(this.db.update(s.monthLines).set({ budget: amount }).where(this.target(line, future))),
+      ...future ? [] : await this.followBudget(line, line.budget, amount)]);
   }
 
   // ── 줄 추가·수정·삭제 ─────────────────────────────────────
@@ -444,6 +456,7 @@ export class LedgerCore {
     if (transferAccount === undefined) valid.transfer_key = line.transfer_key;
     else ({ key: valid.transfer_key, created } = await this.transferKey(line.year, line.month, transferAccount, line.transfer_key));
     statements.push(toStatement(this.db.update(s.monthLines).set(valid).where(where)));
+    if (!future) statements.push(...await this.followBudget(line, line.budget, valid.budget));
     // 자동으로 바뀐 줄은 기록이 없으면 그 자리에서 예산만큼 채운다.
     const turned = affected.filter(r => r.input_mode !== 'fixed' && valid.input_mode === 'fixed');
     if (turned.length) {
