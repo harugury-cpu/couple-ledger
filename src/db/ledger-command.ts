@@ -41,6 +41,7 @@ export async function runLedgerCommand(l: LedgerCore, cmd: z.infer<typeof comman
     case 'propagate': await l.propagate(cmd.ids, cmd.transfer_ids); break;
     case 'account-save': await l.saveAccount(cmd.name, cmd.kind, cmd.target, cmd.id, { principal: cmd.principal, due_on: cmd.due_on, series: cmd.series, start_month: cmd.start_month }); break;
     case 'account-delete': await l.deleteAccount(cmd.id); break;
+    case 'account-move': await l.moveAccount(cmd.id, cmd.before); break;
     case 'account-close': await l.closeAccount(cmd.id, cmd.closed_on, cmd.closed_amount, cmd.closed_note); break;
     case 'deposit': await l.setDeposit(cmd.id, cmd.year, cmd.month, cmd.amount); break;
     case 'balance': await l.setBalance(cmd.id, cmd.year, cmd.month, cmd.amount, cmd.checked_on); break;

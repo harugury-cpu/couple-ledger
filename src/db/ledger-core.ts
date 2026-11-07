@@ -805,6 +805,18 @@ export class LedgerCore {
       await this.store.batch([toStatement(this.db.update(s.accounts).set(fields).where(eq(s.accounts.id, id)))]);
     } else await this.store.batch(this.insert(s.accounts, [{ id: crypto.randomUUID(), ...fields, sort: Math.max(-1, ...rows.map(a => a.sort)) + 1 }]));
   }
+  // 자산 표에서 계좌 줄을 끌어 옮긴다: before 계좌 바로 앞으로(없으면 맨 뒤로). 순서는 sort에 0부터 다시 매긴다.
+  async moveAccount(id: string, before: string | null) {
+    await this.init();
+    const rows = await this.db.select().from(s.accounts).orderBy(asc(s.accounts.sort));
+    const moving = rows.find(a => a.id === id);
+    if (!moving) throw new InputError('계좌를 찾을 수 없습니다.');
+    const order = rows.filter(a => a.id !== id);
+    const at = before ? order.findIndex(a => a.id === before) : order.length;
+    if (at < 0) throw new InputError('옮길 자리를 찾을 수 없습니다.');
+    order.splice(at, 0, moving);
+    await this.store.batch(order.flatMap((a, sort) => a.sort === sort ? [] : [toStatement(this.db.update(s.accounts).set({ sort }).where(eq(s.accounts.id, a.id)))]));
+  }
   async deleteAccount(id: string) {
     await this.init();
     if (!(await this.db.select({ id: s.accounts.id }).from(s.accounts).where(eq(s.accounts.id, id))).length) throw new InputError('계좌를 찾을 수 없습니다.');

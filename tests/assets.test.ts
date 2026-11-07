@@ -199,3 +199,14 @@ it('해지한 계좌는 받은 금액과 최종 손익을 남기고 합계에서
   await applyEditHistory(l, done.history_id!, 'undo');
   expect((await l.snapshot(2026, 11)).accounts.find(a => a.name === '토스')!.closed_on).toBeNull();
 });
+
+it('계좌 줄을 끌어 다른 계좌 앞이나 맨 뒤로 옮긴다', async () => {
+  const { l } = await setup();
+  for (const name of ['가', '나', '다']) await action(l, { type: 'account-save', name, kind: 'ready', target: null, principal: 0, series: [] });
+  const id = async (name: string) => (await l.snapshot(2026, 11)).accounts.find(a => a.name === name)!.id;
+  const names = async () => (await l.snapshot(2026, 11)).accounts.map(a => a.name);
+  await action(l, { type: 'account-move', id: await id('다'), before: await id('가') });
+  expect(await names()).toEqual(['다', '가', '나']);
+  await action(l, { type: 'account-move', id: await id('다'), before: null });
+  expect(await names()).toEqual(['가', '나', '다']);
+});

@@ -98,6 +98,14 @@ export function AssetsView({ data, busy, perform, onError, history }: Props) {
     if (col) el.scrollLeft = Math.max(0, col.offsetLeft + col.offsetWidth - (el.clientWidth - pinned));
   }, [data.year, thisYear, today.month, rows.length, V, phone]);
   const openRows = rows.filter(r => !r.closed);
+  // 계좌 줄 끌어 옮기기(월별 표와 같은 손잡이 ⠿): from 번째 줄을 at 번째 줄 앞 자리로. 해지한 계좌는 늘 맨 아래라 옮기지 않는다.
+  const [drag, setDrag] = useState<number | null>(null);
+  const [drop, setDrop] = useState<number | null>(null);
+  const endDrag = () => { setDrag(null); setDrop(null); };
+  const moveTo = (from: number, at: number) => {
+    if (at === from || at === from + 1 || at < 0 || at > openRows.length) return;
+    void perform({ type: 'account-move', id: openRows[from].account.id, before: at < openRows.length ? openRows[at].account.id : null });
+  };
   const monthSum = (i: number) => openRows.some(r => r.months[i].amount !== null) ? openRows.reduce((sum, r) => sum + (r.months[i].amount ?? 0), 0) : null;
   const heads: [string, React.ReactNode, number?][] = [
     ['', '계좌'], ['numeric', '이월 원금'], ...visible.map(m => ['numeric', `${m}월`, m] as [string, string, number]),
@@ -147,9 +155,22 @@ export function AssetsView({ data, busy, perform, onError, history }: Props) {
         {heads.map(([className, label, month], col) => <th key={col} scope="col" className={className || undefined} data-month={month}
           style={className.includes('stick-r') ? pin(col) : columns.width(col)}>{label}{columns.handle(col)}</th>)}
       </tr></thead>
-      <tbody>{rows.map((r, row) => <tr key={r.account.id} className={[edit === r.account.id ? 'editing' : '', r.closed ? 'closed' : ''].join(' ').trim() || undefined}>
+      <tbody>{rows.map((r, row) => <tr key={r.account.id}
+        className={[edit === r.account.id ? 'editing' : '', r.closed ? 'closed' : '', drag === row ? 'dragging' : '',
+          drag !== null && drop === row ? 'drop-before' : drag !== null && drop === openRows.length && row === openRows.length - 1 ? 'drop-after' : ''].join(' ').trim() || undefined}
+        onDragOver={drag === null || r.closed ? undefined : e => {
+          e.preventDefault(); e.dataTransfer.dropEffect = 'move'; const box = e.currentTarget.getBoundingClientRect();
+          const at = e.clientY > box.top + box.height / 2 ? row + 1 : row; setDrop(at === drag || at === drag + 1 ? null : at);
+        }} onDrop={drag === null ? undefined : e => { e.preventDefault(); if (drop !== null) moveTo(drag, drop); endDrag(); }}>
         {[
-          <th scope="row"><button className="line-name" disabled={busy} aria-label={`${r.account.name} 계좌 수정`} onClick={() => setEdit(edit === r.account.id ? null : r.account.id)}>{r.account.name}</button>
+          <th scope="row">{!phone && !r.closed && !busy && <span className="line-grip" role="button" tabIndex={0} draggable aria-label={`${r.account.name} 순서 옮기기 (끌거나 위·아래 화살표)`} title="끌어서 순서 옮기기"
+              onDragStart={e => {
+                e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', r.account.id);
+                const tr = e.currentTarget.closest('tr'); if (tr) e.dataTransfer.setDragImage(tr, 24, tr.offsetHeight / 2);
+                setDrag(row);
+              }} onDragEnd={endDrag}
+              onKeyDown={e => { if (e.key === 'ArrowUp') { e.preventDefault(); moveTo(row, row - 1); } if (e.key === 'ArrowDown') { e.preventDefault(); moveTo(row, row + 2); } }}>⠿</span>}
+            <button className="line-name" disabled={busy} aria-label={`${r.account.name} 계좌 수정`} onClick={() => setEdit(edit === r.account.id ? null : r.account.id)}>{r.account.name}</button>
             <small>{r.closed ? `해지 ${shortDate(r.closed.on)}${r.closed.note ? ` · → ${r.closed.note}` : ''}` : `${accountKinds[r.account.kind]}${r.lockedUntil ? ` · 묶임 ~${r.lockedUntil.slice(0, 7).replace('-', '.')}` : ''}`}</small></th>,
           <td className="numeric"><MoneyCell value={r.opening || null} label={`${r.account.name} 이월 원금`} disabled={busy || !!r.closed} onError={onError}
             onSave={amount => { void saveOpening(r, amount ?? 0); }} /></td>,

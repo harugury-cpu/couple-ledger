@@ -328,6 +328,12 @@ label input, label select { width: 100%; min-width: 0; height: 32px; border: 1px
 .asset-table thead tr > :first-child { background: var(--ink); }
 .asset-table th[scope="row"] small { display: block; font-size: 10px; line-height: 1.1; color: var(--slate); }
 .asset-table td.carried .money-input { color: var(--slate); }
+/* 계좌 줄 끌어 옮기기: 월별 표와 같은 손잡이(줄에 올리면 보인다)와 놓을 자리 선 */
+.asset-table tbody th:has(.line-grip) { padding-left: 20px; }
+.asset-table tr:hover .line-grip { opacity: 1; }
+.asset-table tr.dragging > * { opacity: .4; }
+.asset-table tr.drop-before > * { box-shadow: inset 0 2px 0 var(--ink); }
+.asset-table tr.drop-after > * { box-shadow: inset 0 -2px 0 var(--ink); }
 /* 해지한 계좌: 흐리게, 맨 아래. 이름 아래에 해지한 날·어디로 보냈는지 */
 .asset-table tr.closed > *, .locked-table tr.closed > * { color: var(--dust); }
 .asset-table tr.closed .line-name, .locked-table tr.closed .line-name { color: var(--slate); }
