@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import initSqlJs from 'sql.js/dist/sql-asm.js';
 import { createDemoLedger, handleDemoRequest } from '../src/demo/demo-ledger';
 import { computeLines, savingsRows } from '../src/lib/calculations';
@@ -7,9 +7,13 @@ import { computeLines, savingsRows } from '../src/lib/calculations';
 const migrations = readdirSync('migrations').filter(f => f.endsWith('.sql')).map(name => ({ name, sql: readFileSync(`migrations/${name}`, 'utf8') }));
 // 2026-10-13 오후 3시(한국 시간)
 const now = new Date('2026-10-13T06:00:00Z');
+// 브라우저 데모는 DB 하나만 쓴다. 테스트마다 만든 DB를 닫아야 sql.js(asm)의 고정 메모리가 쌓여 넘치지 않는다.
+const opened: { close(): void }[] = [];
+afterEach(() => { for (const db of opened.splice(0)) db.close(); });
 async function demo() {
   const SQL = await initSqlJs();
-  return createDemoLedger(new SQL.Database(), migrations, now);
+  const db = new SQL.Database(); opened.push(db);
+  return createDemoLedger(db, migrations, now);
 }
 describe('공유용 데모 가계부', () => {
   it('화면에 보이는 이름은 예시 이름이다', async () => {

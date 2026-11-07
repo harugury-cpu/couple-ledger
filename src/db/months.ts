@@ -22,17 +22,19 @@ export function scopedMonth(id: string, kind: 'l' | 't') {
 export const autoCreatedAt = (year: number, month: number) => new Date(Date.UTC(year, month - 1, 1) - 9 * 3600_000).toISOString();
 
 export type MonthPlan = { month: LedgerMonth; lines: MonthLine[]; transfers: Transfer[]; entries: Entry[] };
-export type MonthBase = { lines: MonthLine[]; transfers: Transfer[] };
+// actuals: 전달 줄(series)마다 적힌 금액 합계. 자동 줄은 새 달에 이 금액을 이어 쓴다(기록이 없던 줄은 예산).
+export type MonthBase = { lines: MonthLine[]; transfers: Transfer[]; actuals?: Map<string, number> };
 
-export function autoEntries(lines: MonthLine[], memberId: string): Entry[] {
+// amountOf: 자동 금액. 기본은 예산, 새 달을 만들 때는 전달에 적힌 금액(planMonth)을 쓴다.
+export function autoEntries(lines: MonthLine[], memberId: string, amountOf: (line: MonthLine) => number = l => l.budget): Entry[] {
   return lines.filter(l => l.input_mode === 'fixed').map(l => ({
-    id: autoEntryId(l.id), month_line_id: l.id, amount: l.budget, source: 'auto' as const, raw_text: null,
+    id: autoEntryId(l.id), month_line_id: l.id, amount: amountOf(l), source: 'auto' as const, raw_text: null,
     dedupe_key: null, created_by: memberId, created_at: autoCreatedAt(l.year, l.month),
   }));
 }
 
 // base: 직전에 실제로 있는 달의 줄·이체 계좌. 없으면 양식(seed)으로 시작한다(양식 달은 자동 금액을 넣지 않는다 — 예전과 같음).
-// 자동(매달 같은 금액) 줄은 달을 만드는 순간 금액을 채운다. 앞으로 올 달도 미리 채워 둔다.
+// 자동(매달 같은 금액) 줄은 달을 만드는 순간 전달에 적힌 금액으로 채운다. 앞으로 올 달도 미리 채워 둔다.
 export function planMonth(year: number, month: number, base: MonthBase | null, options: { memberId: string; categoryIds: Set<string>; methodIds: Set<string> }): MonthPlan {
   if (!base) {
     const lines = initialLines(year, month).map(l => ({
@@ -45,7 +47,7 @@ export function planMonth(year: number, month: number, base: MonthBase | null, o
   const lines = base.lines.filter(l => !l.one_off).map(l => ({ ...l, id: lineId(year, month, l.series_id), year, month })).sort((a, b) => a.sort - b.sort);
   const keys = new Set(lines.map(l => l.transfer_key));
   const transfers = base.transfers.filter(t => keys.has(t.series_id)).map(t => ({ ...t, id: transferId(year, month, t.series_id), year, month }));
-  return { month: { year, month, special_prompt_seen: false, auto_filled: true }, lines, transfers, entries: autoEntries(lines, options.memberId) };
+  return { month: { year, month, special_prompt_seen: false, auto_filled: true }, lines, transfers, entries: autoEntries(lines, options.memberId, l => base.actuals?.get(l.series_id) ?? l.budget) };
 }
 
 // 이체 묶음의 줄이 표에서 이어지도록, 묶음에 들어온 줄을 묶음의 마지막 줄 바로 아래로 옮긴 순서를 돌려준다. 옮길 필요가 없으면 그대로.

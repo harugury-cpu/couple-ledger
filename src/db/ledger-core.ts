@@ -12,7 +12,7 @@ import { and, asc, eq, getTableColumns, inArray, sql, type SQL } from 'drizzle-o
 import { SQLiteAsyncDialect, type SQLiteTable } from 'drizzle-orm/sqlite-core';
 import * as s from './schema';
 import { categoryNames, paymentNames } from './seed';
-import { autoEntries, autoEntryId, fromIndex, monthIndex, planMonth, settleTransfers, scopedMonth, type MonthBase, type MonthPlan } from './months';
+import { autoEntries, fromIndex, monthIndex, planMonth, settleTransfers, scopedMonth, type MonthBase, type MonthPlan } from './months';
 import { toStatement, type LedgerStore, type Statement } from './store';
 import { safeSum } from '../lib/calculations';
 import { validateArchive, type Archive } from '../lib/archive';
@@ -71,11 +71,20 @@ export class LedgerCore {
   private async monthTransfers(year: number, month: number) {
     return this.db.select().from(s.transfers).where(and(eq(s.transfers.year, year), eq(s.transfers.month, month)));
   }
+  private async monthBase(year: number, month: number): Promise<MonthBase> {
+    const lines = await this.monthRows(year, month);
+    const series = new Map(lines.map(l => [l.id, l.series_id]));
+    const actuals = new Map<string, number>();
+    for (const e of await this.entriesWhere(and(eq(s.monthLines.year, year), eq(s.monthLines.month, month))!)) {
+      const key = series.get(e.month_line_id); if (key) actuals.set(key, (actuals.get(key) ?? 0) + e.amount);
+    }
+    return { lines, transfers: await this.monthTransfers(year, month), actuals };
+  }
   // 아직 없는 달(target)에 대해, 직전에 실제로 있는 달부터 target까지 만들 계획
   private async plansUpTo(year: number, month: number, months: s.LedgerMonth[], onlyTarget: boolean): Promise<MonthPlan[]> {
     const target = monthIndex(year, month);
     const prior = months.filter(m => monthIndex(m.year, m.month) < target).sort((a, b) => monthIndex(b.year, b.month) - monthIndex(a.year, a.month))[0];
-    const base: MonthBase | null = prior ? { lines: await this.monthRows(prior.year, prior.month), transfers: await this.monthTransfers(prior.year, prior.month) } : null;
+    const base: MonthBase | null = prior ? await this.monthBase(prior.year, prior.month) : null;
     const memberId = await this.memberId();
     const categoryIds = new Set((await this.db.select({ id: s.categories.id }).from(s.categories)).map(c => c.id));
     const methodIds = new Set((await this.db.select({ id: s.paymentMethods.id }).from(s.paymentMethods)).map(c => c.id));
@@ -271,6 +280,8 @@ export class LedgerCore {
         SELECT ${crypto.randomUUID()},${id},${amount} - total,'paste',NULL,${memberId},${new Date().toISOString()}
         FROM (SELECT COALESCE(SUM(amount),0) AS total,COUNT(*) AS n FROM entries WHERE month_line_id=${id})
         WHERE ${amount} - total <> 0 OR n=0`));
+      const line = updated.find(l => l.id === id)!;
+      if (amount !== null && line.input_mode === 'fixed') writes.push(...await this.followAmount(line, amount));
     }
     writes.push(...this.transferWrites(year, month, updated, transfers, newTransfers), ...this.pruneMerges(year, month), ...extra);
     await this.store.batch(writes);
@@ -339,16 +350,21 @@ export class LedgerCore {
     return byLine;
   }
 
-  // 앞으로 올 달의 자동 줄은 금액이 예산을 따라간다: 예산을 바꾸면 자동 금액도 같이 바뀐다(예전에 그 달이 올 때 최신 예산으로 채우던 것과 같은 결과).
-  // 손으로 고친 기록(manual·quick·paste)은 두고 그만큼을 뺀다. 알림·명세서로 들어온 돈은 따로 더해진다. 이번 달·지난 달은 건드리지 않는다.
-  async syncFutureAuto() {
-    await this.init();
-    const t = this.today();
-    const target = `(SELECT l.budget FROM month_lines l WHERE l.id = entries.month_line_id)
-      - (SELECT COALESCE(SUM(o.amount), 0) FROM entries o WHERE o.month_line_id = entries.month_line_id AND o.id <> entries.id AND o.source IN ('manual', 'quick', 'paste'))`;
-    await this.store.batch([{ sql: `UPDATE entries SET amount = ${target}
-      WHERE source = 'auto' AND amount <> ${target}
-        AND month_line_id IN (SELECT id FROM month_lines WHERE input_mode = 'fixed' AND year * 12 + month > ?)`, params: [t.year * 12 + t.month], history: false }]);
+  // 자동 줄에 금액을 적으면 그 뒤 달들의 자동 금액을 그 값으로 이어 쓴다. 앞 달은 그대로 둔다.
+  // 손으로 적은 금액(manual·quick·paste)이 있거나 비워 둔 달, 자동이 아닌 달을 만나면 멈춘다: 그 달부터는 그 달 값이 이어진다.
+  private async followAmount(line: s.MonthLine, amount: number): Promise<Statement[]> {
+    const later = (await this.db.select().from(s.monthLines).where(and(eq(s.monthLines.series_id, line.series_id), sql`${s.monthLines.year} * 12 + ${s.monthLines.month} > ${line.year * 12 + line.month}`)))
+      .sort((x, y) => (x.year * 12 + x.month) - (y.year * 12 + y.month));
+    if (!later.length) return [];
+    const recorded = await this.db.select().from(s.entries).where(inArray(s.entries.month_line_id, later.map(l => l.id)));
+    const statements: Statement[] = [];
+    for (const l of later) {
+      const own = recorded.filter(e => e.month_line_id === l.id);
+      const auto = own.find(e => e.source === 'auto');
+      if (l.input_mode !== 'fixed' || !auto || own.some(e => ['manual', 'quick', 'paste'].includes(e.source))) break;
+      if (auto.amount !== amount) statements.push(toStatement(this.db.update(s.entries).set({ amount }).where(eq(s.entries.id, auto.id))));
+    }
+    return statements;
   }
 
   // ── 금액·예산 ────────────────────────────────────────────
@@ -364,11 +380,8 @@ export class LedgerCore {
         if (amount + change < 0) throw new InputError('특별 지출로 옮긴 예산보다 금액이 작습니다. 특별 지출을 먼저 취소하세요.');
       }
       carry.push(toStatement(this.db.update(s.monthLines).set({ budget: amount }).where(this.target(line, future))));
-      if (future) {
-        const later = (await this.db.select({ id: s.monthLines.id }).from(s.monthLines).where(this.target(line, true))).filter(r => r.id !== line.id);
-        if (later.length) carry.push(toStatement(this.db.update(s.entries).set({ amount }).where(inArray(s.entries.id, later.map(r => autoEntryId(r.id))))));
-      }
     }
+    if (line.input_mode === 'fixed') carry.push(...await this.followAmount(line, amount));
     // 최종 금액과 지금까지 기록 합계의 차이를 한 문장 안에서 계산한다. 같은 칸을 동시에 저장해도 합계가 틀어지지 않는다.
     // 차이가 0이고 기록이 이미 있으면 아무것도 넣지 않는다.
     const memberId = await this.memberId();

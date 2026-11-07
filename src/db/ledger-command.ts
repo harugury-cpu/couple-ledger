@@ -43,7 +43,5 @@ export async function runLedgerCommand(l: LedgerCore, cmd: z.infer<typeof comman
     case 'account-delete': await l.deleteAccount(cmd.id); break;
     case 'balance': await l.setBalance(cmd.id, cmd.year, cmd.month, cmd.amount); break;
   }
-  // 예산이 바뀌었을 수 있다: 앞으로 올 달의 자동 금액을 예산에 맞춘다.
-  await l.syncFutureAuto();
   return entry_id;
 }

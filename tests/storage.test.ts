@@ -37,11 +37,11 @@ it('달을 보기만 하면 DB에 쓰지 않는다 (앞으로 올 달·연도 �
   expect((await l.exportArchive()).data).toEqual(archive);
 });
 
-it('앞으로 올 달도 자동 금액을 바로 채우고, 예산을 바꾸면 따라 바뀌며, 자산 누적에는 이번 달까지만 들어간다', async () => {
+it('앞으로 올 달도 자동 금액을 바로 채우고, 자산 누적에는 이번 달까지만 들어간다', async () => {
   const l = make(); await l.ensureMonth(2026, 10);
   const saving = (await l.month(2026, 10)).find(r => r.section === 'saving' && r.input_mode === 'fixed')!;
   await l.setBudget(saving.id, 400000);
-  // 10월(이번 달)은 이미 만들어졌으므로 자동 금액이 없다(양식 달). 11월을 미리 본다.
+  // 10월은 양식 달이라 기록이 없다: 11월 자동 금액은 예산으로 채운다.
   const nov = await l.snapshot(2026, 11);
   const novSaving = nov.lines.find(r => r.month === 11 && r.series_id === saving.series_id)!;
   expect(novSaving.budget).toBe(400000);
@@ -50,19 +50,35 @@ it('앞으로 올 달도 자동 금액을 바로 채우고, 예산을 바꾸면 
   const rows = savingsRows(2026, computeLines(nov.lines, nov.entries, nov.adjustments), nov.uses, 0, { year: 2026, month: 10 });
   expect(rows[10].a + rows[10].b + rows[10].extra).toBeGreaterThan(0);
   expect(rows[10].assets).toBe(rows[9].assets); expect(rows[11].assets).toBe(rows[9].assets);
-  // 11월을 만들면 자동 금액이 실제로 들어간다.
   const gas = nov.lines.find(r => r.month === 11 && r.name === '가스비')!;
   await l.setAmount(gas.id, 30000);
-  const snap = await l.snapshot(2026, 11);
-  expect(snap.months.find(m => m.month === 11)).toMatchObject({ auto_filled: true });
-  expect(snap.entries.find(e => e.month_line_id === novSaving.id)).toMatchObject({ amount: 400000, source: 'auto' });
-  // 앞으로 올 달의 자동 금액은 예산을 따라간다(이번 달 10월 금액은 그대로).
-  await action(l, { type: 'budget', id: novSaving.id, amount: 450000 });
-  expect((await l.exportArchive()).data.entries.filter(e => e.month_line_id === novSaving.id).map(e => e.amount)).toEqual([450000]);
-  // 그 달이 지나 이번 달이 되면 예산을 바꿔도 이미 들어간 금액은 그대로다.
-  now = { year: 2026, month: 11 };
-  await action(l, { type: 'budget', id: novSaving.id, amount: 500000 });
-  expect((await l.exportArchive()).data.entries.filter(e => e.month_line_id === novSaving.id).map(e => e.amount)).toEqual([450000]);
+  expect((await l.snapshot(2026, 11)).months.find(m => m.month === 11)).toMatchObject({ auto_filled: true });
+  // 예산만 바꾸면 이미 채운 자동 금액은 그대로다.
+  await l.setBudget(novSaving.id, 450000);
+  expect((await l.exportArchive()).data.entries.filter(e => e.month_line_id === novSaving.id).map(e => e.amount)).toEqual([400000]);
+});
+
+it('자동 줄에 적은 금액은 뒤 달들로 이어지고, 앞 달은 그대로이며, 손으로 적은 달에서 멈춘다', async () => {
+  const l = make(); await l.ensureMonth(2026, 10);
+  const oct = (await l.month(2026, 10)).find(r => r.section === 'saving' && r.input_mode === 'fixed')!;
+  await l.setAmount(oct.id, 100000);
+  // 새 달은 전달에 적힌 금액으로 채운다.
+  await l.ensureMonth(2027, 2);
+  const amountAt = async (year: number, month: number) => {
+    const s = await l.snapshot(year, month);
+    const line = s.lines.find(r => r.year === year && r.month === month && r.series_id === oct.series_id)!;
+    return computeLines([line], s.entries, [])[0].actual;
+  };
+  expect(await amountAt(2026, 12)).toBe(100000);
+  // 11월에 적으면 12월~2월이 따라오고 10월은 그대로다.
+  const nov = (await l.month(2026, 11)).find(r => r.series_id === oct.series_id)!;
+  await l.setAmount(nov.id, 120000);
+  expect([await amountAt(2026, 10), await amountAt(2026, 12), await amountAt(2027, 2)]).toEqual([100000, 120000, 120000]);
+  // 1월을 손으로 고친 뒤 11월을 다시 바꾸면 12월만 따라오고 1월부터는 1월 값이 이어진다.
+  const jan = (await l.month(2027, 1)).find(r => r.series_id === oct.series_id)!;
+  await l.setAmount(jan.id, 90000);
+  await l.setAmount(nov.id, 130000);
+  expect([await amountAt(2026, 12), await amountAt(2027, 1), await amountAt(2027, 2)]).toEqual([130000, 90000, 90000]);
 });
 
 it('이번 달이 아직 없으면 자동 금액까지 넣은 모습으로 보여 주고, 그대로 만들어진다', async () => {
