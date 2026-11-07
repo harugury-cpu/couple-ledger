@@ -43,6 +43,9 @@ export function AssetsView({ data, busy, perform, onError, history }: Props) {
     data.deposits, data.lastMonth || Infinity);
   const editing = edit && edit !== 'new' ? data.accounts.find(a => a.id === edit) : undefined;
   const thisYear = data.year === today.year;
+  // 이월 원금 칸을 고치면 그 값이 되도록 시작 원금을 맞춘다(지난해까지 쌓인 금액은 그대로).
+  const saveOpening = (row: (typeof rows)[number], opening: number) => perform({ type: 'account-save', id: row.account.id, name: row.account.name, kind: row.account.kind, target: row.account.target,
+    principal: opening - (row.opening - row.account.principal), due_on: row.account.due_on, series: JSON.parse(row.account.series), start_month: row.account.start_month });
   // 열: 계좌 · 이월 원금 · 보이는 달들 · 총 원금 · 평가금액 · 증감
   const V = visible.length; const totalCol = 2 + V; const valueCol = totalCol + 1; const count = totalCol + 3;
   const values: SheetValue[][] = rows.map(r => [
@@ -56,13 +59,18 @@ export function AssetsView({ data, busy, perform, onError, history }: Props) {
     disabled: busy, touch, perform, onError, columns: count, mergeable: false,
     // 붙여넣기는 직접 적는 칸에만 된다: 투자 계좌의 평가금액(오늘 확인한 값), 직접 입력 계좌의 달 칸.
     paste: async changes => {
-      const writes = changes.map(c => {
+      // 값 확인을 먼저 모두 끝낸 뒤(틀린 칸이 있으면 아무것도 쓰지 않는다) 차례로 저장한다.
+      const writes = changes.map((c): () => Promise<unknown> => {
         const row = rows.find(r => r.account.id === c.id)!;
-        if (c.col >= 2 && c.col < totalCol && isDirect(row.account)) return { type: 'deposit', id: c.id, year: data.year, month: visible[c.col - 2], amount: parseMoney(c.value, true) };
-        if (c.col !== valueCol || row.account.kind !== 'invest' || !thisYear) throw new Error('평가금액 칸이나 직접 입력 계좌의 달 칸에만 붙여넣을 수 있습니다.');
-        return { type: 'balance', id: c.id, year: today.year, month: today.month, amount: parseMoney(c.value, true), checked_on: today.iso };
+        if (c.col === 1) { const amount = parseMoney(c.value) ?? 0; return () => saveOpening(row, amount); }
+        if (c.col >= 2 && c.col < totalCol && isDirect(row.account)) { const command = { type: 'deposit', id: c.id, year: data.year, month: visible[c.col - 2], amount: parseMoney(c.value, true) }; return () => perform(command); }
+        const line = c.col >= 2 && c.col < totalCol ? row.months[c.col - 2].lineId : null;
+        if (line) { const command = { type: 'amount', id: line, amount: parseMoney(c.value, true) }; return () => perform(command); }
+        if (c.col !== valueCol || row.account.kind !== 'invest' || !thisYear) throw new Error('이 칸은 붙여넣을 수 없습니다. 저축 줄이 둘 이상인 달은 월별 표에서 고치세요.');
+        const command = { type: 'balance', id: c.id, year: today.year, month: today.month, amount: parseMoney(c.value, true), checked_on: today.iso };
+        return () => perform(command);
       });
-      for (const command of writes) if (!await perform(command)) return false;
+      for (const write of writes) if (!await write()) return false;
       return true;
     } });
   const columns = useColumnWidths(`asset-columns:${phone ? 'phone' : 'wide'}`, count);
@@ -90,7 +98,7 @@ export function AssetsView({ data, busy, perform, onError, history }: Props) {
     </div></div>
     {/* 은행 앱처럼 맨 위에 총 자산을 크게, 그 아래 구성(평가금액 + 묶인 돈)과 투자 성과(넣은 원금 대비 증감) */}
     <section className="asset-hero" aria-label="자산 요약">
-      <div className="asset-hero-head"><p>총 자산</p><button disabled={busy} onClick={() => setEdit(edit === 'new' ? null : 'new')}>+ 계좌 추가</button></div>
+      <div className="asset-hero-head"><p>총 자산</p></div>
       <p className="asset-hero-total">{won(totals.total)}<span>원</span></p>
       <dl className="asset-hero-parts">
         <div><dt>평가금액</dt><dd>{won(totals.value)}</dd></div>
@@ -107,15 +115,17 @@ export function AssetsView({ data, busy, perform, onError, history }: Props) {
         })} />
     </div>}
 
-    {rows.length > 0 && <div className="sheet-tools" ref={tools.toolbar} role="toolbar" aria-label="셀 작업" onPointerDown={e => { if (e.target instanceof Element && e.target.closest('button')) e.preventDefault(); }}>
+    <div className="sheet-tools" ref={tools.toolbar} role="toolbar" aria-label="셀 작업" onPointerDown={e => { if (e.target instanceof Element && e.target.closest('button')) e.preventDefault(); }}>
+      <button type="button" disabled={busy} onClick={() => setEdit(edit === 'new' ? null : 'new')}>+ 계좌 추가</button>
+      {rows.length > 0 && <><span className="tool-divider" />
       <button type="button" disabled={busy || !history.canUndo} title="실행 취소 (Ctrl/⌘+Z)" onClick={() => tools.runHistory('undo', history.undo)}>실행 취소</button>
       <button type="button" disabled={busy || !history.canRedo} title="다시 실행 (Ctrl/⌘+Shift+Z)" onClick={() => tools.runHistory('redo', history.redo)}>다시 실행</button>
       <span className="tool-divider" />
       <button type="button" disabled={!tools.picked.size} title="선택한 셀 복사 (Ctrl/⌘+C)" onClick={() => { void tools.copy(); }}>복사</button>
       <button type="button" disabled={busy || !tools.picked.size} title="평가금액 칸에 붙여넣기 (Ctrl/⌘+V)" onClick={() => { void tools.paste(); }}>붙여넣기</button>
       {touch && <button type="button" aria-pressed={tools.touchSelection} onClick={() => tools.setTouchSelection(!tools.touchSelection)}>셀 선택</button>}
-      <span className="selection-info" role="status">{tools.picked.size ? `${tools.picked.size}칸 선택${tools.numericCount ? ` · 합계 ${won(tools.total)}` : ''}` : touch ? '셀 선택을 켜고 범위의 양 끝을 누르세요' : '클릭 선택 · 두 번 클릭 편집'}</span>
-    </div>}
+      <span className="selection-info" role="status">{tools.picked.size ? `${tools.picked.size}칸 선택${tools.numericCount ? ` · 합계 ${won(tools.total)}` : ''}` : touch ? '셀 선택을 켜고 범위의 양 끝을 누르세요' : '클릭 선택 · 두 번 클릭 편집'}</span></>}
+    </div>
     {rows.length ? <div className="table-scroll asset-scroll" ref={scroller} tabIndex={-1} role="region" aria-label="계좌별 원금·평가금액 표">
       <table className={`balance-table asset-table sheet-like${tools.touchSelection ? ' selecting' : ''}`} ref={tools.table} {...tools.tableProps} style={columns.tableStyle}>
       <thead><tr ref={columns.head}>
@@ -126,12 +136,17 @@ export function AssetsView({ data, busy, perform, onError, history }: Props) {
         {[
           <th scope="row"><button className="line-name" disabled={busy} aria-label={`${r.account.name} 계좌 수정`} onClick={() => setEdit(edit === r.account.id ? null : r.account.id)}>{r.account.name}</button>
             <small>{accountKinds[r.account.kind]}</small></th>,
-          <td className="numeric">{r.opening ? won(r.opening) : ''}</td>,
+          <td className="numeric"><MoneyCell value={r.opening || null} label={`${r.account.name} 이월 원금`} disabled={busy} onError={onError}
+            onSave={amount => { void saveOpening(r, amount ?? 0); }} /></td>,
           ...r.months.map(m => isDirect(r.account)
             // 직접 입력 계좌: 달 칸에 바로 적는다. 앞 달에서 이어 쓴 값은 흐리게 보인다.
             ? <td className={`numeric${m.carried ? ' carried' : ''}`}><MoneyCell value={m.amount} signed label={`${r.account.name} ${m.month}월 입금`} disabled={busy} onError={onError}
                 onSave={amount => { void perform({ type: 'deposit', id: r.account.id, year: data.year, month: m.month, amount }); }} /></td>
-            : <td className={`numeric${m.amount !== null && m.amount < 0 ? ' minus' : ''}`}>{m.amount === null ? '' : won(m.amount)}</td>),
+            : m.lineId
+              // 연결된 저축 줄이 하나인 달: 칸에서 고치면 월별 표 그 줄 금액이 바뀐다(매달 같은 금액 줄이면 뒤 달로 이어진다).
+              ? <td className="numeric"><MoneyCell value={m.amount} signed label={`${r.account.name} ${m.month}월 원금`} disabled={busy} onError={onError}
+                  onSave={amount => { void perform({ type: 'amount', id: m.lineId!, amount }); }} /></td>
+              : <td className={`numeric${m.amount !== null && m.amount < 0 ? ' minus' : ''}`} title={m.amount === null ? undefined : '저축 줄이 둘 이상이라 월별 표에서 고칩니다'}>{m.amount === null ? '' : won(m.amount)}</td>),
           <td className="numeric asset-total stick-r r2" style={pin(totalCol)}>{won(r.principal)}</td>,
           <td className="numeric asset-value stick-r r1" style={pin(valueCol)}>{r.account.kind === 'invest'
             ? <><MoneyCell value={r.value} label={`${r.account.name} 평가금액`} disabled={busy || !thisYear} onError={onError}

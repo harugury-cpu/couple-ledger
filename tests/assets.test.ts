@@ -124,3 +124,12 @@ it('저축 줄을 연결하지 않은 계좌는 달 칸에 직접 적고, 적은
   const copy = make(); await copy.importArchive(archive);
   expect((await copy.exportArchive()).data.account_deposits).toEqual(archive.data.account_deposits);
 });
+
+it('연결한 저축 줄이 하나인 달은 그 줄을 칸에서 고칠 수 있고, 둘 이상이면 월별 표에서 고친다', async () => {
+  const { l, series, line } = await setup();
+  await action(l, { type: 'account-save', name: '우리', kind: 'ready', target: null, principal: 0, start_month: '2026-11', series: [series[0]] });
+  await action(l, { type: 'account-save', name: '토스', kind: 'invest', target: null, principal: 0, start_month: '2026-11', series: [series[1], series[2]] });
+  const { rows } = await view(l);
+  expect(rows.find(r => r.account.name === '우리')!.months[0].lineId).toBe((await line(2026, 11, 0)).id);
+  expect(rows.find(r => r.account.name === '토스')!.months.every(m => m.lineId === null)).toBe(true);
+});
