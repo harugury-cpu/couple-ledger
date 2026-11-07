@@ -164,3 +164,16 @@ it('기록 시작 달 전 달 칸은 막혀 있고, 거기 남은 입금은 보�
   expect(row.months.map(m => [m.month, m.before, m.amount])).toEqual([[10, true, null], [11, true, null], [12, false, null]]);
   expect(row.principal).toBe(1_000);
 });
+
+it('꺼낼 수 있는 날이 남은 계좌(퇴직연금)는 지금 쓸 수 있는 돈에서 빠지고 묶인 돈에 들어간다', async () => {
+  const { l } = await setup();
+  await action(l, { type: 'account-save', name: '토스', kind: 'invest', target: null, principal: 100, start_month: '2026-11', series: [] });
+  await action(l, { type: 'account-save', name: '퇴직연금', kind: 'invest', target: null, principal: 1_000, start_month: '2026-11', series: [], due_on: '2050-06-30' });
+  await action(l, { type: 'account-save', name: '보증금', kind: 'reserved', target: null, principal: 5_000, due_on: '2028-06-27' });
+  const pension = (await l.snapshot(2026, 11)).accounts.find(a => a.name === '퇴직연금')!;
+  await action(l, { type: 'balance', id: pension.id, year: 2026, month: 11, amount: 1_200, checked_on: '2026-11-07' });
+  const s = await l.snapshot(2026, 11);
+  const result = assetRows(s.accounts, computeLines(s.lines, s.entries, s.adjustments), s.balances, s.assetCarry, 2026, s.deposits, s.lastMonth, 2026 * 12 + 11);
+  expect(result.rows.find(r => r.account.name === '퇴직연금')!.lockedUntil).toBe('2050-06-30');
+  expect(result.totals).toMatchObject({ value: 100, locked: 5_000 + 1_200, total: 100 + 6_200, allValue: 1_300, change: 1_300 - 1_100 });
+});

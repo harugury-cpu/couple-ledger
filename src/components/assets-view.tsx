@@ -146,7 +146,7 @@ export function AssetsView({ data, busy, perform, onError, history }: Props) {
       <tbody>{rows.map((r, row) => <tr key={r.account.id} className={edit === r.account.id ? 'editing' : undefined}>
         {[
           <th scope="row"><button className="line-name" disabled={busy} aria-label={`${r.account.name} 계좌 수정`} onClick={() => setEdit(edit === r.account.id ? null : r.account.id)}>{r.account.name}</button>
-            <small>{accountKinds[r.account.kind]}</small></th>,
+            <small>{accountKinds[r.account.kind]}{r.lockedUntil && ` · 묶임 ~${r.lockedUntil.slice(0, 7).replace('-', '.')}`}</small></th>,
           <td className="numeric"><MoneyCell value={r.opening || null} label={`${r.account.name} 이월 원금`} disabled={busy} onError={onError}
             onSave={amount => { void saveOpening(r, amount ?? 0); }} /></td>,
           ...r.months.map(m => m.before ? <td className="numeric before" />
@@ -172,7 +172,7 @@ export function AssetsView({ data, busy, perform, onError, history }: Props) {
       <tfoot><tr>
         <th scope="row">합계</th><td className="numeric">{won(rows.reduce((sum, r) => sum + r.opening, 0))}</td>
         {visible.map((m, i) => { const sum = monthSum(i); return <td key={m} className={`numeric${rows[0]?.months[i].future ? ' future' : ''}`}>{sum === null ? '' : won(sum)}</td>; })}
-        <td className="numeric stick-r r2" style={pin(totalCol)}>{won(totals.principal)}</td><td className="numeric asset-key stick-r r1" style={pin(valueCol)}>{won(totals.value)}</td>
+        <td className="numeric stick-r r2" style={pin(totalCol)}>{won(totals.principal)}</td><td className="numeric asset-key stick-r r1" style={pin(valueCol)}>{won(totals.allValue)}</td>
         <td className={`numeric stick-r r0${trend(totals.change)}`} style={pin(count - 1)}>{signed(totals.change)}</td>
       </tr></tfoot>
     </table></div>
@@ -186,7 +186,7 @@ export function AssetsView({ data, busy, perform, onError, history }: Props) {
         <th scope="row"><button className="line-name" disabled={busy} aria-label={`${a.name} 수정`} onClick={() => setEdit(edit === a.id ? null : a.id)}>{a.name}</button></th>
         <td className="numeric">{won(a.principal)}</td><td className="numeric">{a.due_on ?? <span className="muted">—</span>}</td>
       </tr>)}</tbody>
-      <tfoot><tr><th scope="row">합계</th><td className="numeric">{won(totals.locked)}</td><td /></tr></tfoot>
+      <tfoot><tr><th scope="row">합계</th><td className="numeric">{won(locked.reduce((sum, a) => sum + a.principal, 0))}</td><td /></tr></tfoot>
     </table></div>
       : <p className="muted">보증금처럼 당장 꺼낼 수 없는 돈은 [+ 계좌 추가]에서 종류를 ‘묶인 돈’으로 고르면 여기에 모이고 총 자산에 더해집니다.</p>}
     {chart.length > 1 && <SavingsChart rows={chart} title="넣은 원금 누적" label="월별 넣은 원금 누적 그래프" name="원금" />}
@@ -209,7 +209,7 @@ function AccountForm({ account, data, today, busy, onSave, onCancel, onDelete, o
     e.preventDefault(); const form = new FormData(e.currentTarget);
     try {
       onSave({ name: String(form.get('name')).trim(), kind: accountKind.parse(form.get('kind')), principal: parseMoney(String(form.get('principal') ?? '')) ?? 0,
-        due_on: kind === 'reserved' ? String(form.get('due_on') ?? '') || null : null, series: kind === 'reserved' ? [] : form.getAll('series').map(String),
+        due_on: String(form.get('due_on') ?? '') || null, series: kind === 'reserved' ? [] : form.getAll('series').map(String),
         start_month: kind === 'reserved' ? null : String(form.get('start_month') ?? '') || null });
     } catch (error) { onError(error instanceof Error && !('issues' in error) ? error.message : '이름과 금액을 확인하세요.'); }
   }}>
@@ -218,7 +218,8 @@ function AccountForm({ account, data, today, busy, onSave, onCancel, onDelete, o
       <label>종류<select name="kind" value={kind} onChange={e => setKind(accountKind.parse(e.target.value))}>{kinds.map(k => <option key={k} value={k}>{accountKinds[k]}</option>)}</select></label>
       <label>{kind === 'reserved' ? '금액' : '시작 원금'}<input name="principal" inputMode="numeric" defaultValue={account?.principal || ''} placeholder="0" /></label>
       {kind !== 'reserved' && <label>기록 시작 달<input name="start_month" type="month" defaultValue={account ? account.start_month ?? '' : today} /></label>}
-      {kind === 'reserved' && <label>돌려받는 날<input name="due_on" type="date" defaultValue={account?.due_on ?? ''} /></label>}
+      {/* 묶인 돈은 돌려받는 날, 저축·투자는 꺼낼 수 있는 날(퇴직연금처럼 묶인 계좌만 적는다) */}
+      <label>{kind === 'reserved' ? '돌려받는 날' : '꺼낼 수 있는 날(묶인 계좌만)'}<input name="due_on" type="date" defaultValue={account?.due_on ?? ''} /></label>
     </div>
     {kind !== 'reserved' && <fieldset className="series-pick"><legend>원금으로 더할 월별 표 저축 줄</legend>
       {saving.length ? saving.map(l => <label key={l.series_id}>

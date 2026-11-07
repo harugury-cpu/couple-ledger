@@ -798,7 +798,8 @@ export class LedgerCore {
     if (rows.some(a => a.name === name && a.id !== id)) throw new InputError('같은 이름의 계좌가 있습니다.');
     const taken = rows.filter(a => a.id !== id).find(a => (JSON.parse(a.series) as string[]).some(k => series.includes(k)));
     if (taken) throw new InputError(`고른 저축 줄 중에 '${taken.name}' 계좌에 이미 연결된 줄이 있습니다.`);
-    const fields = { name, kind, target, principal, due_on: kind === 'reserved' ? due_on : null, series: JSON.stringify(series), start_month };
+    // due_on: 묶인 돈은 돌려받는 날, 저축·투자는 꺼낼 수 있는 날(퇴직연금처럼 그날 전까지 묶인 계좌).
+    const fields = { name, kind, target, principal, due_on, series: JSON.stringify(series), start_month };
     if (id) {
       if (!rows.some(a => a.id === id)) throw new InputError('계좌를 찾을 수 없습니다.');
       await this.store.batch([toStatement(this.db.update(s.accounts).set(fields).where(eq(s.accounts.id, id)))]);
