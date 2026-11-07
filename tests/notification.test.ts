@@ -262,6 +262,7 @@ describe.each([false, true])('MacroDroid 서버와 웹 API (D1=%s)', d1 => {
     await inbox.discard(event.id); advance(3600_000);
     expect((await inbox.receive(unknown)).status).toBe('duplicate');
     expect((await inbox.list(2026, 10)).pending).toHaveLength(0);
+    expect((await inbox.list(2026, 10)).history.some(item => item.id === event.id)).toBe(false);
     await expect(inbox.save(event.id, { date: '2026-10-10', merchant: '마트', amount: 1000 }, line.id, false, null)).rejects.toThrow('이미 처리');
   });
   it('수신과 월 생성·저장은 batch 한 번, 실패 시 모두 롤백', async () => {

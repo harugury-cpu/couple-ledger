@@ -35,7 +35,8 @@ export class NotificationInbox {
       eq(notificationEvents.status, 'review'), and(eq(notificationEvents.year, year), eq(notificationEvents.month, month)),
     )).orderBy(desc(notificationEvents.received_at));
     return { pending: events.filter(event => event.status === 'review').map(event => this.view(event)),
-      history: events.filter(event => event.status !== 'review').map(event => this.view(event)) };
+      // 버린 알림은 기록에도 보이지 않는다. 같은 알림이 다시 와도 receive가 걸러 내므로 미분류로도 돌아오지 않는다.
+      history: events.filter(event => event.status !== 'review' && event.status !== 'discarded').map(event => this.view(event)) };
   }
   async receive(input: NotificationInput): Promise<IngestResult> {
     input = notificationSchema.parse(input);
