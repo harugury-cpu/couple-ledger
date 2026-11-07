@@ -105,12 +105,12 @@ export function AssetsView({ data, busy, perform, onError, history }: Props) {
       <h2>자산</h2>
       <p className="muted">달마다 넣은 원금은 월별 표의 저축 줄에서 가져옵니다. 평가금액은 증권 앱에서 본 값을 확인한 날 적습니다.</p>
     </div></div>
-    {/* 은행 앱처럼 맨 위에 총 자산을 크게, 그 아래 구성(평가금액 + 묶인 돈)과 투자 성과(넣은 원금 대비 증감) */}
+    {/* 맨 위 큰 숫자는 지금 쓸 수 있는 돈(저축·투자 계좌 평가금액 합계). 보증금 같은 묶인 돈을 더한 총 자산과 원금·증감은 그 아래 작게 */}
     <section className="asset-hero" aria-label="자산 요약">
-      <div className="asset-hero-head"><p>총 자산 <span>{today.year}년 {today.month}월 {Number(today.iso.slice(8, 10))}일 기준</span></p></div>
-      <p className="asset-hero-total">{won(totals.total)}<span>원</span></p>
+      <div className="asset-hero-head"><p>지금 쓸 수 있는 돈 <span>{today.year}년 {today.month}월 {Number(today.iso.slice(8, 10))}일 기준</span></p></div>
+      <p className="asset-hero-total">{won(totals.value)}<span>원</span></p>
       <dl className="asset-hero-parts">
-        <div><dt>평가금액</dt><dd>{won(totals.value)}</dd></div>
+        <div><dt>총 자산(묶인 돈 포함)</dt><dd>{won(totals.total)}</dd></div>
         <div><dt>묶인 돈</dt><dd>{won(totals.locked)}</dd></div>
         <div><dt>넣은 원금</dt><dd>{won(totals.principal)}</dd></div>
         <div><dt>증감</dt><dd className={totals.change < 0 ? 'minus' : ''}>{signed(totals.change)}<span>{rate(totals.change, totals.principal)}</span></dd></div>
