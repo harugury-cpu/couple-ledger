@@ -1,7 +1,7 @@
 import { InputError } from './input-error';
 import * as z from 'zod/mini';
 import { computeLines, monthTotals, savingsRows } from './calculations';
-import { accountKind, canonicalSavingOwner, lineFields, money, signedMoney, entryMoney, nameValue, yearValue, monthValue } from './validation';
+import { accountKind, isoDate, canonicalSavingOwner, lineFields, money, signedMoney, entryMoney, nameValue, yearValue, monthValue } from './validation';
 import { notificationSchema, notificationSettingsSchema, notificationTransactionSchema } from './notification';
 const id = z.string().check(z.minLength(1), z.maxLength(128));
 const sort = z.number().check(z.int(), z.minimum(0), z.maximum(1000000));
@@ -26,8 +26,9 @@ export const archiveSchema = z.strictObject({
     transfers: z._default(rows(z.strictObject({ id, ...ym, series_id: id, account: nameValue, amount: money })), []),
     cell_merges: z._default(rows(z.strictObject({ id, ...ym, section: z.enum(['fixed', 'variable', 'saving', 'income']), line_ids: z.string().check(z.maxLength(100000)), first_col: z.number().check(z.int(), z.minimum(0), z.maximum(7)), last_col: z.number().check(z.int(), z.minimum(0), z.maximum(7)) })), []),
     // 잔액 화면 이전에 내보낸 파일에는 없으므로 비어 있는 것으로 읽는다.
-    accounts: z._default(rows(z.strictObject({ id, name: nameValue, kind: accountKind, target: z.nullable(money), sort })), []),
-    account_balances: z._default(rows(z.strictObject({ id, account_id: id, ...ym, amount: signedMoney })), []),
+    accounts: z._default(rows(z.strictObject({ id, name: nameValue, kind: accountKind, target: z.nullable(money), sort,
+      principal: z._default(signedMoney, 0), due_on: z._default(z.nullable(isoDate), null), series: z._default(z.string().check(z.maxLength(20000)), '[]') })), []),
+    account_balances: z._default(rows(z.strictObject({ id, account_id: id, ...ym, amount: signedMoney, checked_on: z._default(z.nullable(isoDate), null) })), []),
     notification_events: z._default(rows(z.strictObject({
       id, payload: z.string().check(z.maxLength(100000)), transaction_json: z.nullable(z.string().check(z.maxLength(1000))),
       fingerprint: z.string().check(z.length(64)), approval_key: z.nullable(z.string().check(z.length(64))),

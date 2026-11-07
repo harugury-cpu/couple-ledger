@@ -80,7 +80,7 @@ it('계좌와 잔액은 월별 표의 줄·금액을 바꾸지 않는다', async
   const l = make(); const before = await l.snapshot(2026, 10);
   await l.saveAccount('비상금', 'ready', null); const { accounts } = await l.snapshot(2026, 10); await l.setBalance(accounts[0].id, 2026, 10, 100);
   const after = await l.snapshot(2026, 10);
-  expect({ ...after, accounts: [], balances: [] }).toEqual({ ...before, accounts: [], balances: [] });
+  expect({ ...after, accounts: [], balances: [], assetCarry: {} }).toEqual({ ...before, accounts: [], balances: [], assetCarry: {} });
 });
 
 it('JSON 내보내기·가져오기에 계좌와 잔액이 포함된다', async () => {

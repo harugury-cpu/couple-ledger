@@ -53,14 +53,18 @@ export const ledgerMonths = sqliteTable('ledger_months', {
   // 매달 같은 금액 줄의 자동 금액을 넣었는지 (migrations/0002)
   auto_filled: integer({ mode: 'boolean' }).notNull().default(true),
 }, (t) => [uniqueIndex('ledger_month_unique').on(t.year, t.month)]);
-// 계좌 잔액: 쌓여 있는 돈을 계좌마다 직접 적는다. 월별 표와는 연결하지 않는다.
+// 자산 계좌(migrations/0007). kind: ready=저축(평가금액=원금), invest=투자(평가금액을 적음), reserved=묶인 돈(보증금 등).
+// principal: 저축·투자는 기록 이전에 넣어 둔 시작 원금, 묶인 돈은 그 금액. series: 원금으로 더할 월별 표 저축 줄(series id JSON 배열).
 export const accounts = sqliteTable('accounts', {
   id: text().primaryKey(), name: text().notNull(), kind: text({ enum: ['ready', 'reserved', 'invest'] }).notNull(),
   target: integer(), sort: integer().notNull(),
+  principal: integer().notNull().default(0), due_on: text(), series: text().notNull().default('[]'),
 });
 export const accountBalances = sqliteTable('account_balances', {
   id: text().primaryKey(), account_id: text().notNull().references(() => accounts.id, { onDelete: 'cascade' }),
   year: integer().notNull(), month: integer().notNull(), amount: integer().notNull(),
+  // 평가금액을 확인한 날(YYYY-MM-DD). 한 달에 여러 번 적으면 마지막 값과 날짜가 남는다.
+  checked_on: text(),
 }, (t) => [uniqueIndex('account_balance_unique').on(t.account_id, t.year, t.month)]);
 
 export type MonthLine = typeof monthLines.$inferSelect;

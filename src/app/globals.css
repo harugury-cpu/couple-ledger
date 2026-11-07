@@ -129,24 +129,24 @@ button:disabled, input:disabled, select:disabled { opacity: .55; cursor: wait; }
 .account-list small { color: var(--dust); font-size: 11px; }
 
 /* 격자 표 공통: 크림 위에 놓인 흰 표, 둥근 모서리, 옅은 격자선, 그림자 없음 */
-.sheet, .annual-table, .savings-table, .balance-table {
+.sheet, .annual-table, .balance-table {
   width: 100%; border-collapse: separate; border-spacing: 0; background: var(--white); font-size: 13px; font-variant-numeric: tabular-nums;
   border-radius: var(--radius-table); overflow: clip;
 }
 .sheet { table-layout: fixed; }
-.sheet th, .sheet td, .annual-table th, .annual-table td, .savings-table th, .savings-table td, .balance-table th, .balance-table td {
+.sheet th, .sheet td, .annual-table th, .annual-table td, .balance-table th, .balance-table td {
   border: 0; border-right: 1px solid var(--grid); border-bottom: 1px solid var(--grid);
   height: var(--row-h); padding: 0 8px; text-align: left; font-weight: 450;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 /* 둥근 모서리에 글자가 닿지 않게 양 끝 칸을 안으로 들인다 */
-.sheet tr > .d:first-child, .sheet tr.band th, .savings-table tr > :first-child, .balance-table tr > :first-child { padding-left: 14px; }
-.annual-table tr > :last-child, .savings-table tr > :last-child, .balance-table tr > :last-child { border-right: 0; padding-right: 14px; }
+.sheet tr > .d:first-child, .sheet tr.band th, .balance-table tr > :first-child { padding-left: 14px; }
+.annual-table tr > :last-child, .balance-table tr > :last-child { border-right: 0; padding-right: 14px; }
 /* 월별 표는 병합 칸 때문에 줄마다 마지막 칸이 다르다: 맨 오른쪽 열(남음)에 놓인 칸만 고른다 */
 .sheet tr > .d:last-child { border-right: 0; padding-right: 14px; }
-.sheet tbody tr:last-child > *, .annual-table tfoot tr:last-child > *, .savings-table tfoot tr:last-child > *, .balance-table tfoot tr:last-child > * { border-bottom: 0; }
+.sheet tbody tr:last-child > *, .annual-table tfoot tr:last-child > *, .balance-table tfoot tr:last-child > * { border-bottom: 0; }
 /* 머리줄: 잉크 바탕에 크림 글자 */
-.sheet thead th, .annual-table thead th, .savings-table thead th, .balance-table thead th {
+.sheet thead th, .annual-table thead th, .balance-table thead th {
   height: 34px; font-weight: 500; letter-spacing: -.02em; background: var(--ink); color: var(--canvas);
   border-right-color: rgba(243, 240, 238, .16); border-bottom: 0;
 }
@@ -302,22 +302,38 @@ label input, label select { width: 100%; min-width: 0; height: 32px; border: 1px
 .charts section { min-width: 0; }
 .chart { height: 300px; width: 100%; min-width: 0; }
 .empty-chart { color: var(--slate); padding: 24px 0; }
-.opening-row { display: flex; align-items: center; gap: 8px; padding: 0 0 10px; }
-.opening-row label { flex-direction: row; font-size: 12px; }
-.opening-row .money-input { width: 150px; height: 32px; border-color: var(--outline-soft); border-radius: var(--radius-pill); background: var(--white); padding: 0 14px; }
-.savings-table, .savings-scroll { max-width: 880px; }
-.savings-table tbody th { background: var(--total); font-weight: 500; text-align: right; }
-.savings-table td.use-col { background: var(--band-peach); }
-.savings-table td small { margin-left: 6px; font-size: 10px; color: var(--slate); }
 .savings-chart { margin-top: 16px; max-width: 880px; }
 
-/* 잔액: 묶음마다 색 띠(저축·투자는 월별 표의 저축 띠와 같은 노랑), 그 아래 계좌 줄 */
-.balance-table, .balance-panel { max-width: 880px; }
-.balance-table .c-bal { width: 150px; } .balance-table .c-chg { width: 170px; } .balance-table .c-goal { width: 170px; }
-.balance-table tr.band.ready > * { background: var(--band-blue); color: var(--band-blue-fg); }
-.balance-table tr.band.reserved > * { background: var(--total); }
-.balance-table tr.band.invest > * { background: var(--band-yellow); color: var(--band-yellow-fg); }
-.balance-table td small { margin-left: 6px; font-size: 10px; color: var(--slate); }
+/* 자산: 계좌 행 × 달 열. 계좌 열은 왼쪽에 붙고, 표가 넓으면 옆으로 민다. 총 원금 열은 크림. */
+.balance-panel, .locked-table { max-width: 880px; }
+.asset-scroll { overflow-x: auto; border-radius: var(--radius-table); overscroll-behavior-x: contain; }
+.asset-table { min-width: 1320px; }
+.asset-table tr > :first-child { position: sticky; left: 0; z-index: 1; min-width: 132px; background: var(--white); }
+.asset-table thead tr > :first-child { background: var(--ink); }
+.asset-table th[scope="row"] small { display: block; font-size: 10px; line-height: 1.1; color: var(--slate); }
+.asset-table td.future { color: var(--dust); }
+.asset-table .asset-total { background: var(--total); font-weight: 500; }
+.asset-table thead .asset-total { background: var(--ink); }
+.asset-table td small, .locked-table td small { display: block; font-size: 10px; line-height: 1.1; color: var(--slate); }
+.asset-table td.asset-value { min-width: 128px; }
+.asset-subhead { margin: 28px 0 10px; }
+.series-pick { border: 0; padding: 0; margin: 14px 0 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px 18px; }
+.series-pick legend { font-size: 12px; color: var(--slate); margin-bottom: 8px; padding: 0; }
+.series-pick label { flex-direction: row; align-items: center; gap: 8px; color: var(--ink); font-size: 13px; }
+.series-pick label small { color: var(--slate); font-size: 11px; }
+.series-pick input { width: auto; height: auto; accent-color: var(--ink); }
+.series-pick > small, .series-pick > p { grid-column: 1 / -1; margin: 0; }
+/* 넓은 화면: 총 원금·평가금액·증감은 오른쪽에 붙어 달 열만 옆으로 민다 */
+@media (min-width: 701px) {
+  .asset-table .stick-r { position: sticky; z-index: 1; background: var(--white); }
+  .asset-table thead .stick-r { background: var(--ink); }
+  .asset-table .stick-r.asset-total { background: var(--total); box-shadow: -1px 0 0 var(--grid); }
+  .asset-table thead .stick-r.asset-total { background: var(--ink); }
+  .asset-table .stick-r { box-sizing: border-box; }
+  .asset-table .r0 { right: 0; width: 120px; min-width: 120px; max-width: 120px; }
+  .asset-table .r1 { right: 120px; width: 150px; min-width: 150px; max-width: 150px; }
+  .asset-table .r2 { right: 270px; width: 120px; min-width: 120px; max-width: 120px; }
+}
 
 /* 설정 */
 .settings-section { margin-top: 28px; max-width: 880px; }
@@ -338,11 +354,8 @@ label input, label select { width: 100%; min-width: 0; height: 32px; border: 1px
   :root { --row-h: 36px; }
   .m { display: inline; } .pc { display: none; }
   main { padding: 12px 10px 40px; }
-  .balance-table .d { display: none; }
   .topbar { border-radius: 28px; padding: 12px 10px 8px 16px; gap: 6px 10px; }
   .account-list { display: flex; }
-  .balance-table .c-bal { width: 112px; } .balance-table .c-chg { width: 118px; }
-  .balance-table td small { display: block; margin: 0; line-height: 1.1; }
   .c-num { width: 104px; }
   /* 월별 표: 열 폭 합 696px. 처음에는 수단 열만큼 밀린 채로 열려 항목 · 카테고리 · 예산 · 금액(364px)이 한 화면에 든다.
      금액·남음 열은 −2,706,457 같은 7자리 음수가 잘리지 않는 폭 */
@@ -369,11 +382,7 @@ label input, label select { width: 100%; min-width: 0; height: 32px; border: 1px
   .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .charts { grid-template-columns: 1fr; }
   .charts section, .savings-chart { border-radius: 28px; padding: 20px 14px 10px; }
-  /* 저축 표: 월과 자산(누적) 열을 고정하고 가운데 열만 옆으로 민다 */
-  .savings-table { min-width: 520px; }
-  .savings-table tr > :first-child { position: sticky; left: 0; z-index: 1; }
-  .savings-table tr > :last-child { position: sticky; right: 0; z-index: 1; }
-  .savings-table tbody tr > :last-child { background: var(--white); }
+  .asset-table tr > :first-child { min-width: 104px; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 

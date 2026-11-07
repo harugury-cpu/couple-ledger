@@ -5,8 +5,7 @@ import { computeLines, monthTotals, transferRows } from '../lib/calculations';
 import type { LineFields } from '../lib/validation';
 import { LineForm } from './line-form';
 import { BudgetView } from './budget-view';
-import { SavingsView } from './savings-view';
-import { BalanceView } from './balance-view';
+import { AssetsView } from './assets-view';
 import { SpecialPanel } from './special-panel';
 import { SettingsView } from './settings-view';
 import { MonthSummary } from './month-summary';
@@ -152,7 +151,7 @@ export function LedgerApp({ initial }: { initial?: Snapshot }) {
         <button aria-label="다음 연도" disabled={disabled || year === 2200} onClick={() => setYear(year + 1)}>›</button>
       </div>
       <nav className="sheet-nav" aria-label="가계부 시트">
-        {[['budget', '예산'], ['saving', '저축'], ['balance', '잔액']].map(([key, label]) =>
+        {[['budget', '예산'], ['assets', '자산']].map(([key, label]) =>
           <button key={key} aria-current={view === key ? 'page' : undefined} onClick={() => { setView(key); setEdit(null); }}>{label}</button>)}
         <span className="nav-gap" />
         {Array.from({ length: 12 }, (_, i) =>
@@ -192,8 +191,7 @@ export function LedgerApp({ initial }: { initial?: Snapshot }) {
           fields: { name: line.name, section, category_id: line.category_id, payment_method_id: line.payment_method_id, pay_day: line.pay_day, budget: line.budget, input_mode: 'manual', saving_owner: section === 'saving' ? 'extra' : null, one_off: false } })} />
       <p className="table-note">단위: 원 · 항목명을 누르면 줄을 고치고, 왼쪽 손잡이를 끌면 순서를 옮깁니다. 처음 적은 결제수단은 자동으로 추가됩니다. 금액을 비우면 미입력으로 돌아갑니다. 남음 = 이체 계좌에 옮긴 돈 − 그 묶음에서 쓴 돈.</p>
     </> : view === 'budget' ? <BudgetView data={data} month={month} />
-      : view === 'saving' ? <SavingsView data={data} busy={disabled} perform={perform} onError={setError} />
-      : view === 'balance' ? <BalanceView data={data} month={month} busy={disabled} perform={perform} onError={setError} onMonth={setMonth} />
+      : view === 'assets' ? <AssetsView data={data} busy={disabled} perform={perform} onError={setError} />
       : <SettingsView data={data} busy={disabled} perform={perform} onError={setError} />)}
   </main>;
 }

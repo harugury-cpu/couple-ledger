@@ -87,3 +87,34 @@ export function savingsRows(year: number, lines: ComputedLine[], uses: { year: n
     return { month, a, b, extra, used, assets };
   });
 }
+
+// 자산 탭: 저축·투자 계좌는 행, 달은 열. 원금은 계좌에 연결한 월별 표 저축 줄의 금액(인출은 마이너스로 적는다).
+// through: 이번 달. 그 뒤 달 금액은 예정으로 보이고 총 원금에는 넣지 않는다.
+// 평가금액: 투자는 그 해 말까지 적은 마지막 값(없으면 원금으로 센다), 저축은 이자를 계산하지 않으므로 원금과 같다.
+export function assetRows(accounts: Account[], lines: ComputedLine[], balances: AccountBalance[], carry: Record<string, number>, year: number, through: { year: number; month: number }) {
+  const now = through.year * 12 + through.month;
+  const rows = accounts.filter(a => a.kind !== 'reserved').map(account => {
+    const series = new Set(JSON.parse(account.series) as string[]);
+    const months = Array.from({ length: 12 }, (_, i) => {
+      const own = lines.filter(l => l.year === year && l.month === i + 1 && series.has(l.series_id));
+      return { month: i + 1, amount: own.some(l => l.hasEntry) ? safeSum(own.map(l => l.actual)) : null, future: year * 12 + i + 1 > now };
+    });
+    const opening = safeSum([account.principal, carry[account.id] ?? 0]);
+    const principal = safeSum([opening, ...months.filter(m => !m.future).map(m => m.amount ?? 0)]);
+    const latest = account.kind === 'invest'
+      ? balances.filter(b => b.account_id === account.id && b.year * 12 + b.month <= year * 12 + 12).sort((a, b) => (b.year * 12 + b.month) - (a.year * 12 + a.month))[0]
+      : undefined;
+    const value = account.kind === 'invest' ? latest?.amount ?? null : principal;
+    return { account, months, opening, principal, value, checkedOn: latest?.checked_on ?? (latest ? `${latest.year}-${String(latest.month).padStart(2, '0')}` : null),
+      // 증감은 평가금액을 적는 투자만 낸다. 저축은 이자를 계산하지 않으므로 비워 둔다.
+      change: account.kind !== 'invest' || value === null ? null : safeSum([value, -principal]) };
+  });
+  const locked = accounts.filter(a => a.kind === 'reserved');
+  const principal = safeSum(rows.map(r => r.principal));
+  const value = safeSum(rows.map(r => r.value ?? r.principal));
+  const lockedTotal = safeSum(locked.map(a => a.principal));
+  // 그래프: 그 해 이번 달까지 달마다 쌓인 원금 합계
+  const history = Array.from({ length: 12 }, (_, i) => i + 1).filter(m => year * 12 + m <= now)
+    .map(month => ({ month, assets: safeSum(rows.flatMap(r => [r.opening, ...r.months.filter(m => m.month <= month).map(m => m.amount ?? 0)])) }));
+  return { rows, locked, totals: { principal, value, locked: lockedTotal, total: safeSum([value, lockedTotal]), change: safeSum([value, -principal]) }, history };
+}

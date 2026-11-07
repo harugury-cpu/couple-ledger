@@ -16,7 +16,7 @@ import { autoEntries, fromIndex, monthIndex, planMonth, settleTransfers, scopedM
 import { toStatement, type LedgerStore, type Statement } from './store';
 import { safeSum } from '../lib/calculations';
 import { validateArchive, type Archive } from '../lib/archive';
-import { accountKind, lineFields, money, positiveMoney, signedMoney, yearValue, monthValue, nameValue, type CaptureConfirmItem, type LineInput } from '../lib/validation';
+import { accountKind, isoDate, lineFields, money, positiveMoney, signedMoney, yearValue, monthValue, nameValue, type CaptureConfirmItem, type LineInput } from '../lib/validation';
 import { notificationSettingsSchema, type NotificationSettings } from '../lib/notification';
 import { parseMoney } from '../lib/validation';
 import { parsePayment } from '../lib/payment';
@@ -133,6 +133,17 @@ export class LedgerCore {
   }
 
   // ── 읽기 (DB에 쓰지 않는다) ─────────────────────────────────
+  // 자산 탭의 이월 원금: 계좌에 연결한 저축 줄에 그 해 이전까지 적힌 금액 합계(계좌별). 시작 원금은 화면에서 더한다.
+  private async assetCarry(accounts: s.Account[], year: number): Promise<Record<string, number>> {
+    const owner = new Map(accounts.flatMap(a => (JSON.parse(a.series) as string[]).map(series => [series, a.id] as const)));
+    const carry: Record<string, number> = Object.fromEntries(accounts.map(a => [a.id, 0]));
+    if (!owner.size) return carry;
+    const rows = await this.db.select({ series: s.monthLines.series_id, total: sql<number>`sum(${s.entries.amount})` }).from(s.entries)
+      .innerJoin(s.monthLines, eq(s.entries.month_line_id, s.monthLines.id))
+      .where(and(inArray(s.monthLines.series_id, [...owner.keys()]), sql`${s.monthLines.year} < ${year}`)).groupBy(s.monthLines.series_id);
+    for (const r of rows) carry[owner.get(r.series)!] += Number(r.total);
+    return carry;
+  }
   async month(year: number, month: number) {
     yearValue.parse(year); monthValue.parse(month); await this.init();
     const months = await this.db.select().from(s.ledgerMonths);
@@ -175,7 +186,7 @@ export class LedgerCore {
       uses, years, specials,
       matchRules, cellMerges,
       transfers: virtual ? [...transfers, ...virtual.transfers] : transfers,
-      accounts, balances, futureSeries: [...new Set(future.map(l => l.series_id))],
+      accounts, balances, assetCarry: await this.assetCarry(accounts, year), futureSeries: [...new Set(future.map(l => l.series_id))],
     };
   }
 
@@ -772,14 +783,21 @@ export class LedgerCore {
     if (!(await this.db.select({ id: s.paymentMethods.id }).from(s.paymentMethods).where(eq(s.paymentMethods.id, id))).length) throw new InputError('결제수단을 찾을 수 없습니다.');
     await this.store.batch([toStatement(this.db.delete(s.paymentMethods).where(eq(s.paymentMethods.id, id)))]);
   }
-  async saveAccount(name: string, kind: s.Account['kind'], target: number | null, id?: string) {
+  // extra: 시작 원금(묶인 돈은 금액)·돌려받는 날·원금으로 더할 저축 줄(series). 한 저축 줄은 한 계좌에만 연결된다.
+  async saveAccount(name: string, kind: s.Account['kind'], target: number | null, id?: string,
+    extra: { principal?: number; due_on?: string | null; series?: string[] } = {}) {
     name = nameValue.parse(name); accountKind.parse(kind); if (target !== null) money.parse(target); await this.init();
+    const principal = money.parse(extra.principal ?? 0); const due_on = extra.due_on ? isoDate.parse(extra.due_on) : null;
+    const series = kind === 'reserved' ? [] : [...new Set(extra.series ?? [])];
     const rows = await this.db.select().from(s.accounts);
     if (rows.some(a => a.name === name && a.id !== id)) throw new InputError('같은 이름의 계좌가 있습니다.');
+    const taken = rows.filter(a => a.id !== id).find(a => (JSON.parse(a.series) as string[]).some(k => series.includes(k)));
+    if (taken) throw new InputError(`고른 저축 줄 중에 '${taken.name}' 계좌에 이미 연결된 줄이 있습니다.`);
+    const fields = { name, kind, target, principal, due_on: kind === 'reserved' ? due_on : null, series: JSON.stringify(series) };
     if (id) {
       if (!rows.some(a => a.id === id)) throw new InputError('계좌를 찾을 수 없습니다.');
-      await this.store.batch([toStatement(this.db.update(s.accounts).set({ name, kind, target }).where(eq(s.accounts.id, id)))]);
-    } else await this.store.batch(this.insert(s.accounts, [{ id: crypto.randomUUID(), name, kind, target, sort: Math.max(-1, ...rows.map(a => a.sort)) + 1 }]));
+      await this.store.batch([toStatement(this.db.update(s.accounts).set(fields).where(eq(s.accounts.id, id)))]);
+    } else await this.store.batch(this.insert(s.accounts, [{ id: crypto.randomUUID(), ...fields, sort: Math.max(-1, ...rows.map(a => a.sort)) + 1 }]));
   }
   async deleteAccount(id: string) {
     await this.init();
@@ -787,13 +805,14 @@ export class LedgerCore {
     // 잔액 기록은 계좌와 함께 지워진다(ON DELETE CASCADE).
     await this.store.batch([toStatement(this.db.delete(s.accounts).where(eq(s.accounts.id, id)))]);
   }
-  async setBalance(id: string, year: number, month: number, amount: number | null) {
-    yearValue.parse(year); monthValue.parse(month); if (amount !== null) signedMoney.parse(amount); await this.init();
+  // 평가금액: 그 달의 값 하나와 확인한 날을 남긴다(같은 달에 다시 적으면 덮어쓴다).
+  async setBalance(id: string, year: number, month: number, amount: number | null, checkedOn: string | null = null) {
+    yearValue.parse(year); monthValue.parse(month); if (amount !== null) signedMoney.parse(amount); if (checkedOn) isoDate.parse(checkedOn); await this.init();
     if (!(await this.db.select({ id: s.accounts.id }).from(s.accounts).where(eq(s.accounts.id, id))).length) throw new InputError('계좌를 찾을 수 없습니다.');
     const at = and(eq(s.accountBalances.account_id, id), eq(s.accountBalances.year, year), eq(s.accountBalances.month, month));
     if (amount === null) { await this.store.batch([toStatement(this.db.delete(s.accountBalances).where(at))]); return; }
-    await this.store.batch([toStatement(this.db.insert(s.accountBalances).values({ id: crypto.randomUUID(), account_id: id, year, month, amount })
-      .onConflictDoUpdate({ target: [s.accountBalances.account_id, s.accountBalances.year, s.accountBalances.month], set: { amount } }))]);
+    await this.store.batch([toStatement(this.db.insert(s.accountBalances).values({ id: crypto.randomUUID(), account_id: id, year, month, amount, checked_on: checkedOn })
+      .onConflictDoUpdate({ target: [s.accountBalances.account_id, s.accountBalances.year, s.accountBalances.month], set: { amount, checked_on: checkedOn } }))]);
   }
 
   // ── JSON 내보내기·가져오기 ─────────────────────────────────
