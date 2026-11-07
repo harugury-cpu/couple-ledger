@@ -23,7 +23,7 @@ export function useSheetTools({ year, month, lines, values, merges, automatic, d
   const [editing, setEditing] = useState(false);
   const anchor = useRef({ row: 0, col: 0 }); const sweeping = useRef(false);
   const manual = manualAreas(lines as MonthLine[], merges);
-  const layout = layoutAreas(lines.length, manual, automatic);
+  const layout = layoutAreas(lines.length, manual, automatic, columns);
   const ids = lines.map(l => l.id).join('|');
   useEffect(() => { setPicked(new Set()); }, [ids]);
   useEffect(() => {

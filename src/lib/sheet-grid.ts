@@ -51,14 +51,15 @@ export function manualAreas(lines: MonthLine[], merges: CellMerge[]): SheetArea[
     return [{ row: at[0], col: m.first_col, rows: at.length, cols: m.last_col - m.first_col + 1, manual: m.id }];
   });
 }
-export function layoutAreas(rowCount: number, manual: SheetArea[], automatic: SheetArea[]) {
+// columns: 표의 열 수(월별 표 8열, 자산 표는 보이는 달 수에 따라 달라진다).
+export function layoutAreas(rowCount: number, manual: SheetArea[], automatic: SheetArea[], columns = 8) {
   const cells = new Map<string, SheetArea>();
   for (const area of [...manual, ...automatic]) {
     const keys = rectangle(area.row, area.row + area.rows - 1, area.col, area.col + area.cols - 1);
     if ([...keys].some(k => cells.has(k))) continue;
     for (const key of keys) cells.set(key, area);
   }
-  for (let row = 0; row < rowCount; row++) for (let col = 0; col < 8; col++) {
+  for (let row = 0; row < rowCount; row++) for (let col = 0; col < columns; col++) {
     const key = cellKey(row, col);
     if (!cells.has(key)) cells.set(key, { row, col, rows: 1, cols: 1 });
   }

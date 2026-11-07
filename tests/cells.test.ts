@@ -6,7 +6,7 @@ import { computeLines } from '../src/lib/calculations';
 import { applyEditHistory, recordEdit } from '../src/db/edit-history';
 import { FakeD1 } from './fake-d1';
 import { createD1Ledger } from '../src/db/ledger-d1';
-import { formatClipboard, parseClipboard, manualAreas, sheetOrder } from '../src/lib/sheet-grid';
+import { formatClipboard, parseClipboard, manualAreas, sheetOrder, layoutAreas } from '../src/lib/sheet-grid';
 
 const ledgers: Ledger[] = [];
 afterEach(() => { for (const l of ledgers.splice(0)) l.client.close(); });
@@ -211,4 +211,9 @@ test('구역 사이에 sort가 끼어 있어도 화면에서 붙은 줄은 병�
   // 다른 편집 뒤 정리(pruneMerges)에서도 지워지지 않는다.
   await l.editCells(2026, 1, [{ id: fixed[0].id, col: 3, value: '1000' }]);
   expect((await l.snapshot(2026, 1)).cellMerges.filter(m => m.month === 1)).toHaveLength(1);
+});
+
+test('칸 배치는 표의 열 수만큼 만든다(자산 표는 8열보다 넓을 수 있다)', () => {
+  expect(layoutAreas(2, [], [], 17).size).toBe(34);
+  expect(layoutAreas(1, [], []).size).toBe(8);
 });
