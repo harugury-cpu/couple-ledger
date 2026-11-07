@@ -14,6 +14,7 @@ export const monthValue = z.number().check(z.int(), z.minimum(1), z.maximum(12))
 export const captureDate = z.string().check(z.regex(/^(?:\d{2}\/\d{2}|\d{4}-\d{2}-\d{2})$/, '날짜 형식을 확인하세요.'));
 export const nameValue = z.string().check(z.trim(), z.minLength(1, '이름을 입력하세요.'), z.maxLength(120));
 export const accountKind = z.enum(['ready', 'reserved', 'invest']);
+export const yearMonth = z.string().check(z.regex(/^\d{4}-(0[1-9]|1[0-2])$/, '시작 달은 YYYY-MM으로 입력하세요.'));
 export const isoDate = z.string().check(z.regex(/^\d{4}-\d{2}-\d{2}$/, '날짜는 YYYY-MM-DD로 입력하세요.'));
 export const paymentNotificationFields = {
   notify_app: z.optional(z.nullable(z.string().check(z.trim(), z.maxLength(200)))),
@@ -76,7 +77,7 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('payment-delete'), id: z.string() }),
   z.object({ type: z.literal('undo'), entry_id: z.string() }),
   z.object({ type: z.literal('account-save'), name: nameValue, kind: accountKind, target: z._default(z.nullable(money), null), id: z.optional(z.string()),
-    principal: z._default(money, 0), due_on: z._default(z.nullable(isoDate), null), series: z._default(z.array(z.string().check(z.minLength(1), z.maxLength(128))).check(z.maxLength(100)), []) }),
+    principal: z._default(money, 0), due_on: z._default(z.nullable(isoDate), null), start_month: z._default(z.nullable(yearMonth), null), series: z._default(z.array(z.string().check(z.minLength(1), z.maxLength(128))).check(z.maxLength(100)), []) }),
   z.object({ type: z.literal('account-delete'), id: z.string() }),
   z.object({ type: z.literal('balance'), id: z.string(), year: yearValue, month: monthValue, amount: z.nullable(signedMoney), checked_on: z._default(z.nullable(isoDate), null) }),
 ]);

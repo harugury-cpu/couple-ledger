@@ -89,18 +89,24 @@ export function savingsRows(year: number, lines: ComputedLine[], uses: { year: n
 }
 
 // 자산 탭: 저축·투자 계좌는 행, 달은 열. 원금은 계좌에 연결한 월별 표 저축 줄의 금액(인출은 마이너스로 적는다).
-// through: 이번 달. 그 뒤 달 금액은 예정으로 보이고 총 원금에는 넣지 않는다.
+// 계좌마다 기록 시작 달(start_month)부터 센다: 시작 원금은 그 달 전까지 넣은 원금이고, 그 전 달 칸은 비운다.
+// 표에는 그 해에 시작한 계좌 중 가장 이른 시작 달부터 12월까지 보인다. 금액이 적힌 달은 앞으로 올 달이어도 원금에 넣는다.
 // 평가금액: 투자는 그 해 말까지 적은 마지막 값(없으면 원금으로 센다), 저축은 이자를 계산하지 않으므로 원금과 같다.
-export function assetRows(accounts: Account[], lines: ComputedLine[], balances: AccountBalance[], carry: Record<string, number>, year: number, through: { year: number; month: number }) {
-  const now = through.year * 12 + through.month;
-  const rows = accounts.filter(a => a.kind !== 'reserved').map(account => {
+export function assetRows(accounts: Account[], lines: ComputedLine[], balances: AccountBalance[], carry: Record<string, number>, year: number) {
+  const startOf = (a: Account) => a.start_month ? Number(a.start_month.slice(0, 4)) * 12 + Number(a.start_month.slice(5, 7)) : -Infinity;
+  const tracked = accounts.filter(a => a.kind !== 'reserved' && startOf(a) <= year * 12 + 12);
+  const first = Math.min(12, ...tracked.map(a => Math.max(1, startOf(a) - year * 12)));
+  const visible = Array.from({ length: 13 - first }, (_, i) => first + i);
+  const rows = tracked.map(account => {
     const series = new Set(JSON.parse(account.series) as string[]);
-    const months = Array.from({ length: 12 }, (_, i) => {
-      const own = lines.filter(l => l.year === year && l.month === i + 1 && series.has(l.series_id));
-      return { month: i + 1, amount: own.some(l => l.hasEntry) ? safeSum(own.map(l => l.actual)) : null, future: year * 12 + i + 1 > now };
+    const start = startOf(account);
+    const months = visible.map(month => {
+      const own = lines.filter(l => l.year === year && l.month === month && series.has(l.series_id));
+      const counted = year * 12 + month >= start && own.some(l => l.hasEntry);
+      return { month, amount: counted ? safeSum(own.map(l => l.actual)) : null };
     });
     const opening = safeSum([account.principal, carry[account.id] ?? 0]);
-    const principal = safeSum([opening, ...months.filter(m => !m.future).map(m => m.amount ?? 0)]);
+    const principal = safeSum([opening, ...months.map(m => m.amount ?? 0)]);
     const latest = account.kind === 'invest'
       ? balances.filter(b => b.account_id === account.id && b.year * 12 + b.month <= year * 12 + 12).sort((a, b) => (b.year * 12 + b.month) - (a.year * 12 + a.month))[0]
       : undefined;
@@ -113,8 +119,9 @@ export function assetRows(accounts: Account[], lines: ComputedLine[], balances: 
   const principal = safeSum(rows.map(r => r.principal));
   const value = safeSum(rows.map(r => r.value ?? r.principal));
   const lockedTotal = safeSum(locked.map(a => a.principal));
-  // 그래프: 그 해 이번 달까지 달마다 쌓인 원금 합계
-  const history = Array.from({ length: 12 }, (_, i) => i + 1).filter(m => year * 12 + m <= now)
+  // 그래프: 보이는 달마다 쌓인 원금 합계(금액이 적힌 마지막 달까지)
+  const last = Math.max(0, ...rows.flatMap(r => r.months.filter(m => m.amount !== null).map(m => m.month)));
+  const history = visible.filter(m => m <= last)
     .map(month => ({ month, assets: safeSum(rows.flatMap(r => [r.opening, ...r.months.filter(m => m.month <= month).map(m => m.amount ?? 0)])) }));
-  return { rows, locked, totals: { principal, value, locked: lockedTotal, total: safeSum([value, lockedTotal]), change: safeSum([value, -principal]) }, history };
+  return { rows, locked, visible, totals: { principal, value, locked: lockedTotal, total: safeSum([value, lockedTotal]), change: safeSum([value, -principal]) }, history };
 }

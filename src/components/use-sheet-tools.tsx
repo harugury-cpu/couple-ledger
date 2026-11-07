@@ -1,25 +1,28 @@
 'use client';
 import { cloneElement, isValidElement, Children, useEffect, useRef, useState, type ReactElement, type TdHTMLAttributes, type ClipboardEvent, type KeyboardEvent, type PointerEvent } from 'react';
-import type { CellMerge } from '../db/schema';
-import { cellKey, formatClipboard, layoutAreas, manualAreas, parseClipboard, rectangle, selectionBounds, type SheetArea } from '../lib/sheet-grid';
-import type { ComputedLine } from '../lib/calculations';
+import type { CellMerge, MonthLine } from '../db/schema';
+import { cellKey, formatClipboard, layoutAreas, manualAreas, parseClipboard, rectangle, selectionBounds, type SheetArea, type SheetChange } from '../lib/sheet-grid';
 
 export type SheetValue = { text: string; number?: number; identity?: string };
+// 표 칸 선택·복사·붙여넣기·키보드 이동·편집 시작(월별 표·자산 표 공용).
+// 월별 표는 기본값(8열, 붙여넣기는 가계부 'cells' 명령, 병합 가능)을 쓰고, 다른 표는 columns·paste·mergeable로 바꾼다.
 type Options = {
-  year: number; month: number; lines: ComputedLine[]; values: SheetValue[][]; merges: CellMerge[]; automatic: SheetArea[];
+  year: number; month: number; lines: Pick<MonthLine, 'id' | 'section'>[]; values: SheetValue[][]; merges: CellMerge[]; automatic: SheetArea[];
   disabled: boolean; touch: boolean; perform: (command: object) => Promise<unknown>; onError: (message: string) => void;
+  columns?: number; paste?: (changes: SheetChange[]) => Promise<unknown>; mergeable?: boolean;
 };
 let copiedText = '';
 const isEditor = (target: EventTarget | null) => target instanceof Element && !!target.closest('input,textarea,select,[contenteditable="true"]');
 
-export function useSheetTools({ year, month, lines, values, merges, automatic, disabled, touch, perform, onError }: Options) {
+export function useSheetTools({ year, month, lines, values, merges, automatic, disabled, touch, perform, onError, columns = 8, paste: pasteChanges, mergeable = true }: Options) {
+  const lastCol = columns - 1;
   const table = useRef<HTMLTableElement>(null);
   const toolbar = useRef<HTMLDivElement>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [touchSelection, setTouchSelection] = useState(false);
   const [editing, setEditing] = useState(false);
   const anchor = useRef({ row: 0, col: 0 }); const sweeping = useRef(false);
-  const manual = manualAreas(lines, merges);
+  const manual = manualAreas(lines as MonthLine[], merges);
   const layout = layoutAreas(lines.length, manual, automatic);
   const ids = lines.map(l => l.id).join('|');
   useEffect(() => { setPicked(new Set()); }, [ids]);
@@ -53,7 +56,7 @@ export function useSheetTools({ year, month, lines, values, merges, automatic, d
   };
   const bounds = selectionBounds(picked);
   const rectangular = !!bounds && picked.size === (bounds.bottom - bounds.top + 1) * (bounds.right - bounds.left + 1);
-  const canMerge = !editing && rectangular && picked.size > 1 && !!bounds && lines[bounds.top]?.section === lines[bounds.bottom]?.section;
+  const canMerge = mergeable && !editing && rectangular && picked.size > 1 && !!bounds && lines[bounds.top]?.section === lines[bounds.bottom]?.section;
   const selectedMerges = manual.filter(a => [...rectangle(a.row, a.row + a.rows - 1, a.col, a.col + a.cols - 1)].some(k => picked.has(k))).map(a => a.manual!);
   const matrix = () => bounds ? Array.from({ length: bounds.bottom - bounds.top + 1 }, (_, r) => Array.from({ length: bounds.right - bounds.left + 1 }, (_, c) => {
     const row = bounds.top + r; const col = bounds.left + c;
@@ -80,12 +83,12 @@ export function useSheetTools({ year, month, lines, values, merges, automatic, d
         for (const key of picked) { const [row, col] = key.split(':').map(Number); changes.push({ id: lines[row].id, col, value: parsed[0][0] }); }
       } else for (let r = 0; r < parsed.length; r++) for (let c = 0; c < parsed[r].length; c++) {
         const row = start.top + r; const col = start.left + c;
-        if (!lines[row] || col > 7) throw new Error('붙여넣을 범위가 표를 벗어납니다. 필요한 행을 먼저 추가하세요.');
+        if (!lines[row] || col > lastCol) throw new Error('붙여넣을 범위가 표를 벗어납니다. 필요한 행을 먼저 추가하세요.');
         changes.push({ id: lines[row].id, col, value: parsed[r][c] });
       }
-      if (changes.some(c => c.col === 7)) throw new Error('남음은 자동 계산되는 칸입니다. 다른 칸을 선택하세요.');
+      if (!pasteChanges && changes.some(c => c.col === 7)) throw new Error('남음은 자동 계산되는 칸입니다. 다른 칸을 선택하세요.');
       if (changes.length > 512) throw new Error('한 번에 512칸까지 붙여넣을 수 있습니다.');
-      if (await perform({ type: 'cells', year, month, changes })) {
+      if (await (pasteChanges ? pasteChanges(changes) : perform({ type: 'cells', year, month, changes }))) {
         const selected = parsed.length === 1 && parsed[0].length === 1 ? picked : rectangle(start.top, start.top + parsed.length - 1, start.left, start.left + parsed[0].length - 1);
         setPicked(expand(selected)); table.current?.focus({ preventScroll: true });
       }
@@ -147,8 +150,8 @@ export function useSheetTools({ year, month, lines, values, merges, automatic, d
       if (e.key === 'ArrowUp') row--;
       if (e.key === 'ArrowRight' || (e.key === 'Tab' && !e.shiftKey)) col = current.col + current.cols;
       if (e.key === 'ArrowLeft' || (e.key === 'Tab' && e.shiftKey)) col--;
-      if (col > 7) { col = 0; row++; } if (col < 0) { col = 7; row--; }
-      row = Math.max(0, Math.min(lines.length - 1, row)); col = Math.max(0, Math.min(7, col));
+      if (col > lastCol) { col = 0; row++; } if (col < 0) { col = lastCol; row--; }
+      row = Math.max(0, Math.min(lines.length - 1, row)); col = Math.max(0, Math.min(lastCol, col));
       if (e.shiftKey && e.key !== 'Tab') setPicked(rangeTo(row, col));
       else { anchor.current = { row, col }; setPicked(expand(new Set([cellKey(row, col)]))); }
     } else if (e.key === 'Enter' || e.key === 'F2') { e.preventDefault(); startEdit(selected.top, selected.left); }

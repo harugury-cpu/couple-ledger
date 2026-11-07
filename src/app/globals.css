@@ -205,8 +205,9 @@ tfoot th, tfoot td { font-weight: 700 !important; background: var(--total); }
 .sheet tr.line.drop-before > * { box-shadow: inset 0 2px 0 var(--ink); }
 .sheet tr.line.drop-after > * { box-shadow: inset 0 -2px 0 var(--ink); }
 /* 여러 숫자 칸 고르기: 고른 칸은 옅게 칠하고, 합계는 화면 아래 가운데에 떠 있다 */
-.sheet [data-picked] { background: rgba(20, 20, 19, .07) !important; box-shadow: inset 0 0 0 1px rgba(20, 20, 19, .35); }
-.sheet [data-picked] .money-input { color: var(--ink); }
+.sheet [data-picked], .asset-table [data-picked] { background: rgba(20, 20, 19, .07) !important; box-shadow: inset 0 0 0 1px rgba(20, 20, 19, .35); }
+.sheet [data-picked] .money-input, .asset-table [data-picked] .money-input { color: var(--ink); }
+.asset-table:focus { outline: 0; }
 .sheet-tools { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 6px 0 10px; }
 .sheet-tools button { min-height: 30px; padding: 3px 10px; font-size: 12px; }
 .sheet-tools button[aria-pressed="true"] { background: var(--ink); color: var(--white); }
@@ -307,7 +308,8 @@ label input, label select { width: 100%; min-width: 0; height: 32px; border: 1px
 /* 자산: 계좌 행 × 달 열. 계좌 열은 왼쪽에 붙고, 표가 넓으면 옆으로 민다. 총 원금 열은 크림. */
 .balance-panel, .locked-table { max-width: 880px; }
 .asset-scroll { overflow-x: auto; border-radius: var(--radius-table); overscroll-behavior-x: contain; }
-.asset-table { min-width: 1320px; }
+.asset-table { width: auto; }
+.asset-table thead th { position: relative; }
 .asset-table tr > :first-child { position: sticky; left: 0; z-index: 1; min-width: 132px; background: var(--white); }
 .asset-table thead tr > :first-child { background: var(--ink); }
 .asset-table th[scope="row"] small { display: block; font-size: 10px; line-height: 1.1; color: var(--slate); }
@@ -382,7 +384,9 @@ label input, label select { width: 100%; min-width: 0; height: 32px; border: 1px
   .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .charts { grid-template-columns: 1fr; }
   .charts section, .savings-chart { border-radius: 28px; padding: 20px 14px 10px; }
-  .asset-table tr > :first-child { min-width: 104px; }
+  /* 폰: 오른쪽 끝으로 민 채 열면 계좌 · 총 원금 · 평가금액 · 증감이 한 화면(370px)에 다 든다 */
+  .asset-table tr > :first-child { min-width: 84px; max-width: 84px; }
+  .asset-table .r2 { min-width: 88px; } .asset-table td.asset-value, .asset-table .r1 { min-width: 112px; max-width: 112px; } .asset-table .r0 { min-width: 86px; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 

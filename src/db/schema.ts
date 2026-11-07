@@ -59,6 +59,8 @@ export const accounts = sqliteTable('accounts', {
   id: text().primaryKey(), name: text().notNull(), kind: text({ enum: ['ready', 'reserved', 'invest'] }).notNull(),
   target: integer(), sort: integer().notNull(),
   principal: integer().notNull().default(0), due_on: text(), series: text().notNull().default('[]'),
+  // 기록 시작 달(YYYY-MM, migrations/0008). 이 달부터 저축 줄 금액을 원금에 더한다. 비어 있으면 처음부터.
+  start_month: text(),
 });
 export const accountBalances = sqliteTable('account_balances', {
   id: text().primaryKey(), account_id: text().notNull().references(() => accounts.id, { onDelete: 'cascade' }),

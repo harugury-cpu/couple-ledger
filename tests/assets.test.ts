@@ -12,7 +12,7 @@ const make = () => { const l = new Ledger(':memory:', { today: () => now }); ope
 const action = (l: Ledger, command: unknown) => runLedgerAction(l, commandSchema.parse(command), crypto.randomUUID());
 const view = async (l: Ledger, year = 2026) => {
   const s = await l.snapshot(year, 11);
-  return assetRows(s.accounts, computeLines(s.lines, s.entries, s.adjustments), s.balances, s.assetCarry, year, now);
+  return assetRows(s.accounts, computeLines(s.lines, s.entries, s.adjustments), s.balances, s.assetCarry, year);
 };
 
 async function setup() {
@@ -34,9 +34,8 @@ it('계좌에 연결한 저축 줄의 금액이 달별 원금이 되고, 시작 
   const { rows, totals } = await view(l);
   expect(rows[0].opening).toBe(1_050_000);
   expect(rows[0].months.map(m => m.amount)).toEqual([100_000, 100_000, -30_000, ...Array(9).fill(100_000)]);
-  expect(rows[0].months[11].future).toBe(true);
-  // 12월(아직 안 옴)은 총 원금에 넣지 않는다.
-  expect(rows[0].principal).toBe(1_050_000 + 200_000 - 30_000 + 800_000);
+  // 금액이 적힌 달은 아직 안 온 12월도 원금에 넣는다.
+  expect(rows[0].principal).toBe(1_050_000 + 200_000 - 30_000 + 900_000);
   // 평가금액을 적기 전에는 증감이 없고, 합계는 원금으로 센다.
   expect(rows[0]).toMatchObject({ value: null, change: null });
   expect(totals.value).toBe(rows[0].principal);
@@ -78,4 +77,21 @@ it('한 저축 줄은 한 계좌에만 연결되고, 계좌 저장은 실행 취
   const copy = make(); await copy.importArchive(archive);
   expect((await copy.exportArchive()).data.account_balances).toEqual(archive.data.account_balances);
   expect(archive.data.account_balances[0].checked_on).toBe('2026-11-07');
+});
+
+it('기록 시작 달 전 달은 표에 나오지 않고 원금에도 더하지 않는다', async () => {
+  const { l, series, line } = await setup();
+  for (let m = 1; m <= 12; m++) await l.setAmount((await line(2026, m)).id, 100_000);
+  await l.setAmount((await line(2025, 12)).id, 50_000);
+  await action(l, { type: 'account-save', name: '토스증권', kind: 'invest', target: null, principal: 4_498_939, start_month: '2026-11', series: [series[0]] });
+  const { rows, visible } = await view(l);
+  expect(visible).toEqual([11, 12]);
+  expect(rows[0]).toMatchObject({ opening: 4_498_939, principal: 4_498_939 + 200_000 });
+  // 시작 달이 없는 계좌가 함께 있으면 1월부터 보이고, 시작 달 계좌의 앞 달 칸은 비어 있다.
+  await action(l, { type: 'account-save', name: '우리 적금', kind: 'ready', target: null, principal: 0, series: [series[1]] });
+  const both = await view(l);
+  expect(both.visible).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+  expect(both.rows.find(r => r.account.name === '토스증권')!.months.slice(0, 10).every(m => m.amount === null)).toBe(true);
+  // 다음 해 이월 원금은 시작 달부터 센다(2025년 12월 금액은 넣지 않는다).
+  expect((await view(l, 2027)).rows.find(r => r.account.name === '토스증권')!.opening).toBe(4_498_939 + 200_000);
 });

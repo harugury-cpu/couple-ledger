@@ -10,6 +10,7 @@ import { TextCell } from './text-cell';
 import { NewLineRow, type NewLine } from './new-line-row';
 import { moneyFormula } from '../lib/validation';
 import { useSheetTools, type SheetValue } from './use-sheet-tools';
+import { useColumnWidths } from './use-column-widths';
 import { sheetOrder, sheetSections, type SheetArea } from '../lib/sheet-grid';
 
 type Section = ComputedLine['section'];
@@ -91,30 +92,8 @@ export function MonthSheet({ year, month, merges, history, lines: sourceLines, t
     if (phone && el) el.scrollLeft = el.querySelector<HTMLElement>('thead .c-pay')?.offsetWidth ?? 0;
   }, [phone]);
 
-  // 열 너비: 머리줄 칸의 오른쪽 끝을 끌어 바꾼다. 이 기기 브라우저에만 폰·넓은 화면 따로 저장하고, 끝을 두 번 누르면 원래 너비로 돌아간다.
-  const widthKey = `sheet-columns:${phone ? 'phone' : 'wide'}`;
-  const [widths, setWidths] = useState<number[] | null>(null);
-  const head = useRef<HTMLTableRowElement>(null);
-  useEffect(() => {
-    try { const saved: unknown = JSON.parse(localStorage.getItem(widthKey) ?? 'null'); setWidths(Array.isArray(saved) && saved.length === headings.length && saved.every(n => typeof n === 'number' && n > 0) ? saved : null); }
-    catch { setWidths(null); }
-  }, [widthKey]);
-  const resize = (col: number) => (e: React.PointerEvent<HTMLSpanElement>) => {
-    if (e.button !== 0 || !head.current) return;
-    e.preventDefault(); e.stopPropagation();
-    // 처음 끌 때 지금 보이는 너비를 모두 고정해야 한 열만 바뀌고 나머지는 그대로 있다.
-    const start = widths ?? [...head.current.children].map(th => Math.round(th.getBoundingClientRect().width));
-    const handle = e.currentTarget; const x = e.clientX; let next = start;
-    handle.setPointerCapture(e.pointerId); handle.classList.add('active');
-    const move = (m: PointerEvent) => { next = start.map((w, i) => i === col ? Math.max(40, Math.round(w + m.clientX - x)) : w); setWidths(next); };
-    const end = () => {
-      handle.classList.remove('active');
-      handle.removeEventListener('pointermove', move); handle.removeEventListener('pointerup', end); handle.removeEventListener('pointercancel', end);
-      try { localStorage.setItem(widthKey, JSON.stringify(next)); } catch { /* 저장이 막힌 브라우저에서는 이번 화면에서만 유지된다. */ }
-    };
-    handle.addEventListener('pointermove', move); handle.addEventListener('pointerup', end); handle.addEventListener('pointercancel', end);
-  };
-  const resetWidths = () => { setWidths(null); try { localStorage.removeItem(widthKey); } catch { /* 위와 같다. */ } };
+  // 열 너비: 머리줄 칸 끝을 끌어 바꾼다(폰·넓은 화면 따로 저장).
+  const columns = useColumnWidths(`sheet-columns:${phone ? 'phone' : 'wide'}`, headings.length);
 
   // 병합 해제: 맨 윗줄은 값을 그대로 두고, 아랫줄들은 칸을 비워 따로 적을 수 있게 한다(스프레드시트의 병합 해제와 같다).
   const splitButton = (label: string, rows: ComputedLine[], split: (rest: ComputedLine[]) => Promise<unknown>) => rows.length > 1 && !touch &&
@@ -294,10 +273,9 @@ export function MonthSheet({ year, month, merges, history, lines: sourceLines, t
     <datalist id="sheet-methods">{methods.map(m => <option key={m.id} value={m.name} />)}</datalist>
     <datalist id="sheet-accounts">{transfers.map(t => <option key={t.id} value={t.account} />)}</datalist>
     <div className="sheet-scroll" ref={scroller}><table className={`sheet${tools.touchSelection ? " selecting" : ""}`} ref={tools.table} {...tools.tableProps}
-      style={widths ? { width: widths.reduce((a, b) => a + b, 0) } : undefined}>
-      <thead><tr ref={head}>
-        {headings.map(([className, label], col) => <th key={col} className={className} style={widths ? { width: widths[col] } : undefined}>{label}
-          <span className="col-resize" aria-hidden="true" title="끌어서 열 너비 조절 · 두 번 누르면 원래 너비" onPointerDown={resize(col)} onDoubleClick={resetWidths} /></th>)}
+      style={columns.tableStyle}>
+      <thead><tr ref={columns.head}>
+        {headings.map(([className, label], col) => <th key={col} className={className} style={columns.widths ? { width: columns.widths[col] } : undefined}>{label}{columns.handle(col)}</th>)}
       </tr></thead>
       <tbody>
         {sectionRows('fixed')}{addRow('fixed')}{subtotalRow('fixed')}

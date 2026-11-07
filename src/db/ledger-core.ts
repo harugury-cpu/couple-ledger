@@ -16,7 +16,7 @@ import { autoEntries, fromIndex, monthIndex, planMonth, settleTransfers, scopedM
 import { toStatement, type LedgerStore, type Statement } from './store';
 import { safeSum } from '../lib/calculations';
 import { validateArchive, type Archive } from '../lib/archive';
-import { accountKind, isoDate, lineFields, money, positiveMoney, signedMoney, yearValue, monthValue, nameValue, type CaptureConfirmItem, type LineInput } from '../lib/validation';
+import { accountKind, isoDate, yearMonth, lineFields, money, positiveMoney, signedMoney, yearValue, monthValue, nameValue, type CaptureConfirmItem, type LineInput } from '../lib/validation';
 import { notificationSettingsSchema, type NotificationSettings } from '../lib/notification';
 import { parseMoney } from '../lib/validation';
 import { parsePayment } from '../lib/payment';
@@ -33,6 +33,7 @@ export type LedgerOptions = { today?: Today };
 const dialect = new SQLiteAsyncDialect();
 const raw = (query: SQL): Statement => { const { sql: text, params } = dialect.sqlToQuery(query); return { sql: text, params }; };
 const sameMonth = (a: { year: number; month: number }, b: { year: number; month: number }) => a.year === b.year && a.month === b.month;
+const startIndex = (start: string | null) => start ? Number(start.slice(0, 4)) * 12 + Number(start.slice(5, 7)) : -Infinity;
 
 export class LedgerCore {
   readonly store: LedgerStore;
@@ -133,15 +134,18 @@ export class LedgerCore {
   }
 
   // ── 읽기 (DB에 쓰지 않는다) ─────────────────────────────────
-  // 자산 탭의 이월 원금: 계좌에 연결한 저축 줄에 그 해 이전까지 적힌 금액 합계(계좌별). 시작 원금은 화면에서 더한다.
+  // 자산 탭의 이월 원금: 계좌에 연결한 저축 줄에 기록 시작 달부터 그 해 이전까지 적힌 금액 합계(계좌별). 시작 원금은 화면에서 더한다.
   private async assetCarry(accounts: s.Account[], year: number): Promise<Record<string, number>> {
-    const owner = new Map(accounts.flatMap(a => (JSON.parse(a.series) as string[]).map(series => [series, a.id] as const)));
+    const owner = new Map(accounts.flatMap(a => (JSON.parse(a.series) as string[]).map(series => [series, a] as const)));
     const carry: Record<string, number> = Object.fromEntries(accounts.map(a => [a.id, 0]));
     if (!owner.size) return carry;
-    const rows = await this.db.select({ series: s.monthLines.series_id, total: sql<number>`sum(${s.entries.amount})` }).from(s.entries)
+    const rows = await this.db.select({ series: s.monthLines.series_id, at: sql<number>`${s.monthLines.year} * 12 + ${s.monthLines.month}`, total: sql<number>`sum(${s.entries.amount})` }).from(s.entries)
       .innerJoin(s.monthLines, eq(s.entries.month_line_id, s.monthLines.id))
-      .where(and(inArray(s.monthLines.series_id, [...owner.keys()]), sql`${s.monthLines.year} < ${year}`)).groupBy(s.monthLines.series_id);
-    for (const r of rows) carry[owner.get(r.series)!] += Number(r.total);
+      .where(and(inArray(s.monthLines.series_id, [...owner.keys()]), sql`${s.monthLines.year} < ${year}`)).groupBy(s.monthLines.series_id, s.monthLines.year, s.monthLines.month);
+    for (const r of rows) {
+      const account = owner.get(r.series)!;
+      if (Number(r.at) >= startIndex(account.start_month)) carry[account.id] += Number(r.total);
+    }
     return carry;
   }
   async month(year: number, month: number) {
@@ -785,15 +789,16 @@ export class LedgerCore {
   }
   // extra: 시작 원금(묶인 돈은 금액)·돌려받는 날·원금으로 더할 저축 줄(series). 한 저축 줄은 한 계좌에만 연결된다.
   async saveAccount(name: string, kind: s.Account['kind'], target: number | null, id?: string,
-    extra: { principal?: number; due_on?: string | null; series?: string[] } = {}) {
+    extra: { principal?: number; due_on?: string | null; series?: string[]; start_month?: string | null } = {}) {
     name = nameValue.parse(name); accountKind.parse(kind); if (target !== null) money.parse(target); await this.init();
     const principal = money.parse(extra.principal ?? 0); const due_on = extra.due_on ? isoDate.parse(extra.due_on) : null;
+    const start_month = kind === 'reserved' || !extra.start_month ? null : yearMonth.parse(extra.start_month);
     const series = kind === 'reserved' ? [] : [...new Set(extra.series ?? [])];
     const rows = await this.db.select().from(s.accounts);
     if (rows.some(a => a.name === name && a.id !== id)) throw new InputError('같은 이름의 계좌가 있습니다.');
     const taken = rows.filter(a => a.id !== id).find(a => (JSON.parse(a.series) as string[]).some(k => series.includes(k)));
     if (taken) throw new InputError(`고른 저축 줄 중에 '${taken.name}' 계좌에 이미 연결된 줄이 있습니다.`);
-    const fields = { name, kind, target, principal, due_on: kind === 'reserved' ? due_on : null, series: JSON.stringify(series) };
+    const fields = { name, kind, target, principal, due_on: kind === 'reserved' ? due_on : null, series: JSON.stringify(series), start_month };
     if (id) {
       if (!rows.some(a => a.id === id)) throw new InputError('계좌를 찾을 수 없습니다.');
       await this.store.batch([toStatement(this.db.update(s.accounts).set(fields).where(eq(s.accounts.id, id)))]);
