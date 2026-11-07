@@ -276,7 +276,7 @@ export function MonthSheet({ year, month, merges, history, lines: sourceLines, t
       <span className="tool-divider" />
       <button type="button" disabled={!tools.picked.size} title="선택한 셀 복사 (Ctrl/⌘+C)" onClick={() => { void tools.copy(); }}>복사</button>
       <button type="button" disabled={disabled || !tools.picked.size} title="선택한 셀부터 붙여넣기 (Ctrl/⌘+V)" onClick={() => { void tools.paste(); }}>붙여넣기</button>
-      <button type="button" disabled={disabled || !tools.canMerge} title="왼쪽 위 값을 표시하고 나머지 값은 보존합니다" onClick={() => { void tools.merge(); }}>셀 병합</button>
+      <button type="button" disabled={disabled || !tools.canMerge} title={tools.bounds && tools.bounds.left >= 5 ? "아랫줄을 맨 윗줄 이체 계좌로 묶어 합계와 남음을 함께 셉니다" : "왼쪽 위 값을 표시하고 나머지 값은 보존합니다"} onClick={() => { void tools.merge(); }}>셀 병합</button>
       <button type="button" disabled={disabled || tools.editing || !tools.selectedMerges.length} onClick={() => { void tools.unmerge(); }}>병합 해제</button>
       <span className="tool-divider" />
       <button type="button" disabled={disabled || tools.editing || (!laterLines.length && !laterTransfers.length)} title="고른 줄의 지금 내용을 이미 만들어진 이후 달에도 맞춥니다" onClick={propagate}>이후 달에도 반영</button>

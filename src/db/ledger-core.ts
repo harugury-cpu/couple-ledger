@@ -173,7 +173,7 @@ export class LedgerCore {
 
   // ── 줄 찾기 ──────────────────────────────────────────────
   // 여러 칸은 먼저 모두 검증하고, 월 준비·새 수단·값 변경을 한 batch로 저장한다.
-  async editCells(year: number, month: number, changes: SheetChange[]) {
+  async editCells(year: number, month: number, changes: SheetChange[], extra: Statement[] = []) {
     yearValue.parse(year); monthValue.parse(month); await this.init();
     if (!changes.length || changes.length > 512) throw new InputError('한 번에 1~512칸을 붙여넣을 수 있습니다.');
     const snapshot = await this.snapshot(year, month);
@@ -269,7 +269,7 @@ export class LedgerCore {
         FROM (SELECT COALESCE(SUM(amount),0) AS total,COUNT(*) AS n FROM entries WHERE month_line_id=${id})
         WHERE ${amount} - total <> 0 OR n=0`));
     }
-    writes.push(...this.reorder(updated, [], changes.filter(c => c.col === 5).map(c => c.id)), ...this.dropUnused([...transfers, ...newTransfers], updated));
+    writes.push(...this.reorder(updated, [], changes.filter(c => c.col === 5).map(c => c.id)), ...this.dropUnused([...transfers, ...newTransfers], updated), ...extra);
     await this.store.batch(writes);
   }
 
@@ -287,9 +287,20 @@ export class LedgerCore {
         replaced.push(merge.id);
       }
     }
+    const removeReplaced = replaced.map(id => toStatement(this.db.delete(s.cellMerges).where(eq(s.cellMerges.id, id))));
+    // 이체 칸(계좌·이체 금액·남음)의 병합은 "이 줄들은 한 계좌로 보낸다"는 뜻이다. 아랫줄 계좌를 맨 윗줄 계좌로 맞추면
+    // 같은 이름을 적었을 때처럼 저절로 합쳐 보이고, 예산 합계와 남음도 묶음 전체로 계산된다. 분리하면 아랫줄 계좌가 비워진다.
+    if (first >= 5) {
+      const top = rows[at[0]];
+      const account = top.transfer_key ? (await this.monthTransfers(year, month)).find(t => t.series_id === top.transfer_key)?.account : undefined;
+      if (!account) throw new InputError('맨 윗줄에 이체 계좌를 먼저 적으세요.');
+      if (ids.length < 2) throw new InputError('이체 칸은 두 줄 이상을 골라 병합하세요.');
+      await this.editCells(year, month, ids.slice(1).map(id => ({ id, col: 5, value: account })), removeReplaced);
+      return;
+    }
     await this.store.batch([
       ...(await this.planMonthWrites(year, month)).map(s => ({ ...s, history: false })),
-      ...replaced.map(id => toStatement(this.db.delete(s.cellMerges).where(eq(s.cellMerges.id, id)))),
+      ...removeReplaced,
       ...this.insert(s.cellMerges, [{ id: crypto.randomUUID(), year, month, section: rows[at[0]].section, line_ids: JSON.stringify(ids), first_col: first, last_col: last }]),
     ]);
   }

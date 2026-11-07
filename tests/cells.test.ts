@@ -178,3 +178,21 @@ test('[이후 달에도 반영]은 고른 줄 내용만 이후 달에 맞추고,
   const sorted = (d: Record<string, unknown[]>) => Object.fromEntries(Object.entries(d).map(([k, rows]) => [k, rows.map(r => JSON.stringify(r)).sort()]));
   expect(sorted(await data(l))).toEqual(sorted(before));
 });
+
+test('이체 칸을 병합하면 아랫줄을 맨 윗줄 계좌로 묶어 예산 합계·남음이 묶음 전체로 계산된다', async () => {
+  const { l } = await setup();
+  const rows = (await l.month(2026, 1)).filter(r => r.section === 'variable').slice(0, 3);
+  await l.editCells(2026, 1, [{ id: rows[0].id, col: 5, value: '케이' }, { id: rows[0].id, col: 6, value: '320000' }, { id: rows[2].id, col: 5, value: '다른 계좌' }]);
+  // 보이는 칸만 합치던 예전 병합 기록이 있어도 함께 바꾼다.
+  await l.mergeCells(2026, 1, rows.map(r => r.id), 5, 5);
+  await action(l, { type: 'cell-merge', year: 2026, month: 1, ids: rows.map(r => r.id), first_col: 5, last_col: 7 });
+  const s = await l.snapshot(2026, 1);
+  const k = s.transfers.find(t => t.month === 1 && t.account === '케이')!;
+  expect(s.lines.filter(r => rows.some(x => x.id === r.id)).every(r => r.transfer_key === k.series_id)).toBe(true);
+  expect(k.amount).toBe(320000);
+  expect(s.transfers.some(t => t.month === 1 && t.account === '다른 계좌')).toBe(false);
+  expect(s.cellMerges.filter(m => m.month === 1)).toHaveLength(0);
+  // 맨 윗줄에 계좌가 없으면 무엇을 해야 하는지 알려 준다.
+  const plain = (await l.month(2026, 1)).filter(r => r.section === 'fixed').slice(0, 2);
+  await expect(l.mergeCells(2026, 1, plain.map(r => r.id), 5, 5)).rejects.toThrow('맨 윗줄에 이체 계좌를 먼저 적으세요.');
+});
