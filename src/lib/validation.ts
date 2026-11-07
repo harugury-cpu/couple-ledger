@@ -82,8 +82,19 @@ const capturedItem = z.strictObject({ key: z.string().check(z.minLength(1), z.ma
   raw: z.string().check(z.maxLength(10000)), remember: z.boolean(), merchant: nameValue });
 export const captureConfirmSchema = z.strictObject({ year: yearValue, month: monthValue, items: z.array(capturedItem).check(z.maxLength(2000)) });
 export type CaptureConfirmItem = z.infer<typeof capturedItem>;
+// 엑셀처럼 =로 시작하면 더하기·빼기 식의 합계로 읽는다(예: =12,000 + 8,500 - 500).
+export function moneyFormula(parts: number[]) {
+  return '=' + parts.map((n, i) => `${i === 0 ? (n < 0 ? '-' : '') : n < 0 ? ' - ' : ' + '}${Math.abs(n).toLocaleString('ko-KR')}`).join('');
+}
 export function parseMoney(text: string, signed = false): number | null {
   if (!text.trim()) return null;
+  if (text.trim().startsWith('=')) {
+    const formula = text.trim().slice(1).replace(/[\s,]/g, '');
+    if (!/^[+-]?\d+([+-]\d+)*$/.test(formula)) throw new InputError('식은 =12000+8500 처럼 숫자를 더하거나 빼서 적으세요.');
+    const value = (formula.match(/[+-]?\d+/g) ?? []).reduce((sum, term) => sum + Number(term), 0);
+    (signed ? signedMoney : money).parse(value);
+    return value;
+  }
   const clean = text.replaceAll(',', '').trim();
   if (!(signed ? /^-?\d+$/ : /^\d+$/).test(clean)) throw new InputError('금액은 원 단위 정수로 입력하세요.');
   const value = Number(clean);

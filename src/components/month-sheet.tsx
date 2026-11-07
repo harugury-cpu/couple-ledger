@@ -8,6 +8,7 @@ import { parsePayment } from '../lib/payment';
 import { MoneyCell } from './money-cell';
 import { TextCell } from './text-cell';
 import { NewLineRow, type NewLine } from './new-line-row';
+import { moneyFormula } from '../lib/validation';
 import { useSheetTools, type SheetValue } from './use-sheet-tools';
 import { sheetOrder, sheetSections, type SheetArea } from '../lib/sheet-grid';
 
@@ -155,6 +156,9 @@ export function MonthSheet({ year, month, merges, history, lines: sourceLines, t
   const tools = useSheetTools({ year, month, lines, values, merges: merges.filter(m => m.month === month), automatic, disabled, touch, perform, onError });
   // [이후 달에도 반영]: 고른 칸이 있는 줄과, 이체 칸(5·6·7열)을 고른 이체 묶음. 이후 달이 만들어진 것만 대상이다.
   const pickedCells = [...tools.picked].map(key => key.split(':').map(Number));
+  // PC는 한 번 클릭이 칸 선택이라, 여러 기록의 합인 금액 칸 하나를 고르면 도구줄에 = a + b + c 를 보여 준다.
+  const pickedLine = pickedCells.length === 1 && pickedCells[0][1] === 4 ? lines[pickedCells[0][0]] : undefined;
+  const pickedFormula = pickedLine && pickedLine.parts.length > 1 ? ` ${moneyFormula(pickedLine.parts).replace('=', '= ')}` : '';
   const laterLines = [...new Set(pickedCells.map(([row]) => lines[row]))]
     .filter(l => l && !l.series_id.startsWith('special:') && futureSeries.includes(l.series_id));
   const laterTransfers = [...new Set(pickedCells.filter(([, col]) => col >= 5).map(([row]) => lines[row]?.transfer_key))]
@@ -213,7 +217,7 @@ export function MonthSheet({ year, month, merges, history, lines: sourceLines, t
             onSave={amount => { void perform({ type: 'budget', id: l.id, amount: amount ?? 0 }); }} />)}
           {l.effectiveBudget !== l.budget && <small className="adjusted">조정 후 {won(l.effectiveBudget)}</small>}
         </td>,
-        <td className="num"><MoneyCell value={l.hasEntry ? l.actual : null} signed label={`${l.name} 금액`} disabled={disabled || special} onError={onError}
+        <td className="num"><MoneyCell value={l.hasEntry ? l.actual : null} signed parts={l.parts} label={`${l.name} 금액`} disabled={disabled || special} onError={onError}
           onSave={amount => { void perform({ type: 'amount', id: l.id, amount }); }} /></td>,
         ...(transfer ? [
           <td className="d merged">
@@ -281,7 +285,7 @@ export function MonthSheet({ year, month, merges, history, lines: sourceLines, t
       <span className="tool-divider" />
       <button type="button" disabled={disabled || tools.editing || (!laterLines.length && !laterTransfers.length)} title="고른 줄의 지금 내용을 이미 만들어진 이후 달에도 맞춥니다" onClick={propagate}>이후 달에도 반영</button>
       {touch && <button type="button" aria-pressed={tools.touchSelection} onClick={() => tools.setTouchSelection(!tools.touchSelection)}>셀 선택</button>}
-      <span className="selection-info" role="status">{tools.picked.size ? `${tools.picked.size}칸 선택${tools.numericCount ? ` · 합계 ${won(tools.total)}` : ''}` : touch ? '셀 선택을 켜고 범위의 양 끝을 누르세요' : '클릭 선택 · 두 번 클릭 편집'}</span>
+      <span className="selection-info" role="status">{tools.picked.size ? `${tools.picked.size}칸 선택${tools.numericCount ? ` · 합계 ${won(tools.total)}${pickedFormula}` : ''}` : touch ? '셀 선택을 켜고 범위의 양 끝을 누르세요' : '클릭 선택 · 두 번 클릭 편집'}</span>
     </div>
     {used.length > 0 && <ul className="account-list" aria-label="계좌별 남은 돈">
       {used.map(t => <li key={t.id}><span>{t.account}</span><strong className={t.remaining < 0 ? 'minus' : ''}>{won(t.remaining)}</strong><small className={t.amount !== t.budget ? 'transfer-mismatch' : undefined}

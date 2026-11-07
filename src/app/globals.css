@@ -235,6 +235,8 @@ tfoot th, tfoot td { font-weight: 700 !important; background: var(--total); }
 .money-input:hover { border-color: var(--dust); }
 .money-input:focus { border-color: var(--ink); background: var(--white); outline: 0; }
 .money-input.is-empty, .money-input::placeholder { color: var(--dust); }
+/* 여러 기록의 합인 금액 칸을 누르면 칸 오른쪽 아래 끝에 맞춰 = a + b + c 를 띄운다 */
+.money-parts { position: fixed; z-index: 20; max-width: min(calc(100vw - 16px), 520px); width: max-content; padding: 6px 10px; border-radius: var(--radius-tiny); background: var(--ink); color: var(--canvas); font-size: 12px; font-variant-numeric: tabular-nums; white-space: normal; line-height: 1.4; pointer-events: none; }
 /* 이체 금액은 같은 계좌 묶음의 예산 합계와 다를 때 빨갛게 표시한다. */
 .sheet tr.line > .transfer-mismatch, .account-list small.transfer-mismatch { color: var(--transfer-alert); background: var(--transfer-alert-soft); }
 .sheet .transfer-mismatch .money-input { color: var(--transfer-alert); }

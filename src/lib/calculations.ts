@@ -5,16 +5,21 @@ export function safeSum(values: number[]): number {
   if (sum > BigInt(Number.MAX_SAFE_INTEGER) || sum < BigInt(Number.MIN_SAFE_INTEGER)) throw new InputError('합계가 정수 계산의 안전 범위를 넘습니다.');
   return Number(sum);
 }
-export type ComputedLine = MonthLine & { actual: number; effectiveBudget: number; hasEntry: boolean };
+export type ComputedLine = MonthLine & { actual: number; effectiveBudget: number; hasEntry: boolean; parts: number[] };
 export function computeLines(lines: MonthLine[], entries: Entry[], adjustments: Adjustment[]): ComputedLine[] {
   const amounts = new Map<string, bigint>();
   const changes = new Map<string, bigint>();
-  for (const e of entries) amounts.set(e.month_line_id, (amounts.get(e.month_line_id) ?? 0n) + BigInt(e.amount));
+  // parts: 금액 칸을 이루는 입력 기록들(넣은 순서). 칸을 누르면 = a + b + c 로 보여 준다.
+  const parts = new Map<string, number[]>();
+  for (const e of [...entries].sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id))) {
+    amounts.set(e.month_line_id, (amounts.get(e.month_line_id) ?? 0n) + BigInt(e.amount));
+    parts.set(e.month_line_id, [...(parts.get(e.month_line_id) ?? []), e.amount]);
+  }
   for (const a of adjustments) changes.set(a.month_line_id, (changes.get(a.month_line_id) ?? 0n) + BigInt(a.amount));
   return lines.map(l => {
     const actual = amounts.get(l.id) ?? 0n; const budget = BigInt(l.budget) + (changes.get(l.id) ?? 0n);
     const checked = (n: bigint) => { if (n > BigInt(Number.MAX_SAFE_INTEGER) || n < BigInt(Number.MIN_SAFE_INTEGER)) throw new InputError('합계가 정수 계산의 안전 범위를 넘습니다.'); return Number(n); };
-    return { ...l, actual: checked(actual), effectiveBudget: checked(budget), hasEntry: amounts.has(l.id) };
+    return { ...l, actual: checked(actual), effectiveBudget: checked(budget), hasEntry: amounts.has(l.id), parts: parts.get(l.id) ?? [] };
   });
 }
 export function total(lines: ComputedLine[]) {
