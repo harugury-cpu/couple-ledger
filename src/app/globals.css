@@ -305,6 +305,17 @@ label input, label select { width: 100%; min-width: 0; height: 32px; border: 1px
 .empty-chart { color: var(--slate); padding: 24px 0; }
 .savings-chart { margin-top: 16px; max-width: 880px; }
 
+/* 자산 맨 위: 총 자산을 크게, 아래 구분선 밑에 구성(평가금액·묶인 돈)과 성과(넣은 원금·증감) */
+.asset-hero { max-width: 880px; margin: 0 0 18px; padding: 24px 28px 22px; border-radius: var(--radius-frame); background: var(--white); }
+.asset-hero-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.asset-hero-head p { margin: 0; font-size: 13px; color: var(--slate); }
+.asset-hero-total { margin: 4px 0 18px; font-size: 40px; font-weight: 600; line-height: 1.15; letter-spacing: -.03em; font-variant-numeric: tabular-nums; color: var(--ink); }
+.asset-hero-total span { margin-left: 4px; font-size: 20px; font-weight: 500; letter-spacing: 0; }
+.asset-hero-parts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 0; padding-top: 16px; border-top: 1px solid var(--grid); }
+.asset-hero-parts dt { font-size: 12px; color: var(--slate); }
+.asset-hero-parts dd { margin: 4px 0 0; font-size: 16px; font-weight: 500; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+.asset-hero-parts dd span { margin-left: 4px; font-size: 11px; font-weight: 450; color: var(--slate); }
+
 /* 자산: 계좌 행 × 달 열. 계좌 열은 왼쪽에 붙고, 표가 넓으면 옆으로 민다. 총 원금 열은 크림. */
 .balance-panel, .locked-table { max-width: 880px; }
 .asset-scroll { overflow-x: auto; border-radius: var(--radius-table); overscroll-behavior-x: contain; }
@@ -384,6 +395,9 @@ label input, label select { width: 100%; min-width: 0; height: 32px; border: 1px
   .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .charts { grid-template-columns: 1fr; }
   .charts section, .savings-chart { border-radius: 28px; padding: 20px 14px 10px; }
+  .asset-hero { padding: 20px 18px 18px; }
+  .asset-hero-total { font-size: 32px; }
+  .asset-hero-parts { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 12px; }
   /* 폰: 오른쪽 끝으로 민 채 열면 계좌 · 총 원금 · 평가금액 · 증감이 한 화면(370px)에 다 든다 */
   .asset-table tr > :first-child { min-width: 84px; max-width: 84px; }
   .asset-table .r2 { min-width: 88px; } .asset-table td.asset-value, .asset-table .r1 { min-width: 112px; max-width: 112px; } .asset-table .r0 { min-width: 86px; }

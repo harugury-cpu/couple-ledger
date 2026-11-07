@@ -86,15 +86,17 @@ export function AssetsView({ data, busy, perform, onError, history }: Props) {
       <h2>자산</h2>
       <p className="muted">달마다 넣은 원금은 월별 표의 저축 줄에서 가져옵니다. 평가금액은 증권 앱에서 본 값을 확인한 날 적습니다.</p>
     </div></div>
-    <div className="month-bar">
-      <dl className="month-summary asset-summary" aria-label="자산 요약">
-        <div><dt>넣은 원금</dt><dd>{won(totals.principal)}</dd></div>
+    {/* 은행 앱처럼 맨 위에 총 자산을 크게, 그 아래 구성(평가금액 + 묶인 돈)과 투자 성과(넣은 원금 대비 증감) */}
+    <section className="asset-hero" aria-label="자산 요약">
+      <div className="asset-hero-head"><p>총 자산</p><button disabled={busy} onClick={() => setEdit(edit === 'new' ? null : 'new')}>+ 계좌 추가</button></div>
+      <p className="asset-hero-total">{won(totals.total)}<span>원</span></p>
+      <dl className="asset-hero-parts">
         <div><dt>평가금액</dt><dd>{won(totals.value)}</dd></div>
-        <div className="lead"><dt>총 자산</dt><dd>{won(totals.total)}{totals.locked > 0 && <span> 묶인 돈 {won(totals.locked)} 포함</span>}</dd></div>
+        <div><dt>묶인 돈</dt><dd>{won(totals.locked)}</dd></div>
+        <div><dt>넣은 원금</dt><dd>{won(totals.principal)}</dd></div>
         <div><dt>증감</dt><dd className={totals.change < 0 ? 'minus' : ''}>{signed(totals.change)}<span>{rate(totals.change, totals.principal)}</span></dd></div>
       </dl>
-      <button disabled={busy} onClick={() => setEdit(edit === 'new' ? null : 'new')}>+ 계좌 추가</button>
-    </div>
+    </section>
     {(edit === 'new' || editing) && <div className="edit-panel balance-panel"><h3>{editing ? `${editing.name} 수정` : '새 계좌'}</h3>
       <AccountForm key={edit} account={editing} data={data} today={today.iso.slice(0, 7)} busy={busy} onError={onError} onCancel={() => setEdit(null)}
         onSave={async fields => { if (await perform({ type: 'account-save', id: editing?.id, ...fields })) setEdit(null); }}
