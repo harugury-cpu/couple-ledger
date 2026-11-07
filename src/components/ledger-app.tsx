@@ -173,7 +173,7 @@ export function LedgerApp({ initial }: { initial?: Snapshot }) {
       </div>
       {captureOpen && <CapturePanel year={year} month={month} lines={lines} disabled={disabled} onClose={() => setCaptureOpen(false)}
         onSuccess={count => { setCaptureOpen(false); setNotice(`${count}건 넣었습니다.`); setReload(value => value + 1); }} />}
-      {notificationsOpen && <NotificationPanel key={`${year}-${month}`} year={year} month={month} methods={data.paymentMethods} disabled={disabled}
+      {notificationsOpen && <NotificationPanel key={`notifications-${year}-${month}`} year={year} month={month} methods={data.paymentMethods} disabled={disabled}
         onClose={() => setNotificationsOpen(false)} onSuccess={message => { setNotice(message); setReload(value => value + 1); }} />}
       {editing && <div className="edit-panel" ref={el => { if (el && editPanel.current !== editing.id) { editPanel.current = editing.id; el.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } }}><h3>{editing.name} 수정
 </h3>
@@ -185,7 +185,7 @@ export function LedgerApp({ initial }: { initial?: Snapshot }) {
           }} />
       </div>}
       <SpecialPanel data={data} month={month} busy={disabled} perform={perform} />
-      <MonthSheet key={`${year}-${month}`} year={year} month={month} merges={data.cellMerges ?? []} lines={lines} transfers={transfers} categories={data.categories} methods={data.paymentMethods} disabled={disabled} editId={edit}
+      <MonthSheet key={`sheet-${year}-${month}`} year={year} month={month} merges={data.cellMerges ?? []} lines={lines} transfers={transfers} categories={data.categories} methods={data.paymentMethods} disabled={disabled} editId={edit}
         history={{ canUndo: history.undo.length > 0, canRedo: history.redo.length > 0, undo: () => historyShortcut.current('undo'), redo: () => historyShortcut.current('redo') }}
         perform={perform} onEdit={id => setEdit(edit === id ? null : id)} onError={setError} applyFuture={applyFuture} futureSeries={data.futureSeries}
         onCreate={async (section, line) => !!await perform({ type: 'create', year, month, amount: line.amount ?? undefined, transfer_account: line.transfer || undefined, future: createInFuture(), payment_name: line.payment_name,

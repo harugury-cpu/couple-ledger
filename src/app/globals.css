@@ -153,6 +153,13 @@ button:disabled, input:disabled, select:disabled { opacity: .55; cursor: wait; }
 .num, .numeric { text-align: right !important; }
 .c-pay { width: 104px; } .c-cat { width: 94px; } .c-num { width: 98px; } .c-acc { width: 76px; }
 .sheet .num { padding: 0 6px; }
+/* 열 너비 끌기: 머리줄 칸 오른쪽 끝의 손잡이. 넓은 화면에서도 표가 넓어지면 옆으로 민다. */
+.sheet-scroll { overflow-x: auto; }
+.sheet thead th { position: relative; }
+.col-resize { position: absolute; top: 0; right: 0; width: 10px; height: 100%; cursor: col-resize; touch-action: none; }
+.col-resize::after { content: ''; position: absolute; top: 8px; bottom: 8px; right: 0; width: 2px; border-radius: 1px; background: transparent; }
+.col-resize:hover::after, .col-resize.active::after { background: rgba(243, 240, 238, .6); }
+@media (hover: none) { .col-resize { width: 16px; } .col-resize::after { background: rgba(243, 240, 238, .28); } }
 .sheet tr > .d.num:last-child { padding-right: 14px; }
 .m { display: none; }
 /* 폰에서 양식 칸은 입력 칸 대신 값만 보인다 */

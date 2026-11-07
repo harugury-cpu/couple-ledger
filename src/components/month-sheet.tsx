@@ -1,5 +1,5 @@
 'use client';
-import { useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { Category, PaymentMethod, CellMerge } from '../db/schema';
 import { monthTotals, total, transferRows, type ComputedLine } from '../lib/calculations';
 import { sections, won } from '../lib/labels';
@@ -48,10 +48,20 @@ const fieldsOf = (l: ComputedLine): LineInput => ({ name: l.name, section: l.sec
 
 const sum = (rows: TransferRow[], field: 'amount' | 'remaining') => rows.reduce((acc, r) => acc + r[field], 0);
 
-// 폰 폭(globals.css의 폰 구간과 같은 값). 폰에서도 표는 PC와 같은 8열이지만, 폰은 금액을 고치는 곳이라 금액 칸만 입력 칸이다.
-const phoneQuery = '(max-width: 700px)';
-const subscribe = (change: () => void) => { const m = matchMedia(phoneQuery); m.addEventListener('change', change); return () => m.removeEventListener('change', change); };
-const usePhone = () => useSyncExternalStore(subscribe, () => matchMedia(phoneQuery).matches, () => false);
+// 화면 배치와 누르는 방식은 따로 판정한다. 폴드 펼친 화면처럼 폭은 넓어도 손가락으로 누르는 기기가 있다.
+// phone: 폰 폭(globals.css의 폰 구간과 같은 값). 표는 PC와 같은 8열이지만, 폰은 금액을 고치는 곳이라 금액 칸만 입력 칸이다.
+// touch: 마우스를 올려 볼 수 없는 기기. 올려야 보이는 버튼(분리)을 두지 않고, 칸 선택은 [셀 선택]을 켰을 때만 한다.
+const useMedia = (query: string) => useSyncExternalStore(
+  (change: () => void) => { const m = matchMedia(query); m.addEventListener('change', change); return () => m.removeEventListener('change', change); },
+  () => matchMedia(query).matches, () => false);
+const usePhone = () => useMedia('(max-width: 700px)');
+const useTouch = () => useMedia('(hover: none)');
+
+// 월별 표 머리줄: [칸 class, 제목]. 열 너비 조절도 이 순서(0~7열)를 쓴다.
+const headings: [string, React.ReactNode][] = [
+  ['d c-pay', <><span className="pc">고정생활비</span><span className="m">수단</span></>], ['name', <span className="m">고정생활비</span>], ['d c-cat', '카테고리'],
+  ['num c-num', '예산'], ['num c-num', '금액'], ['d c-acc', null], ['d num c-num', '이체 계좌'], ['d num c-num', '남음'],
+];
 
 // Numbers 시트와 같은 순서: 고정생활비 → 가변생활비 → 저축 → 총 지출 → 수입 → 총 수입 → 수입-지출
 export function MonthSheet({ year, month, merges, history, lines: sourceLines, transfers, categories, methods, disabled, editId, perform, onEdit, onError, applyFuture, futureSeries, onCreate }: Props) {
@@ -62,6 +72,7 @@ export function MonthSheet({ year, month, merges, history, lines: sourceLines, t
   const totals = monthTotals(lines);
   const used = transfers.filter(t => t.lineCount > 0);
   const phone = usePhone();
+  const touch = useTouch();
   const categoryName = new Map(categories.map(c => [c.id, c.name]));
   // 폰에서는 처음에 수단 열만큼 밀어 두어 항목 · 카테고리 · 예산 · 금액이 한 화면에 들어오게 한다. 수단은 오른쪽으로 밀면 보인다.
   const scroller = useRef<HTMLDivElement>(null);
@@ -79,8 +90,33 @@ export function MonthSheet({ year, month, merges, history, lines: sourceLines, t
     if (phone && el) el.scrollLeft = el.querySelector<HTMLElement>('thead .c-pay')?.offsetWidth ?? 0;
   }, [phone]);
 
+  // 열 너비: 머리줄 칸의 오른쪽 끝을 끌어 바꾼다. 이 기기 브라우저에만 폰·넓은 화면 따로 저장하고, 끝을 두 번 누르면 원래 너비로 돌아간다.
+  const widthKey = `sheet-columns:${phone ? 'phone' : 'wide'}`;
+  const [widths, setWidths] = useState<number[] | null>(null);
+  const head = useRef<HTMLTableRowElement>(null);
+  useEffect(() => {
+    try { const saved: unknown = JSON.parse(localStorage.getItem(widthKey) ?? 'null'); setWidths(Array.isArray(saved) && saved.length === headings.length && saved.every(n => typeof n === 'number' && n > 0) ? saved : null); }
+    catch { setWidths(null); }
+  }, [widthKey]);
+  const resize = (col: number) => (e: React.PointerEvent<HTMLSpanElement>) => {
+    if (e.button !== 0 || !head.current) return;
+    e.preventDefault(); e.stopPropagation();
+    // 처음 끌 때 지금 보이는 너비를 모두 고정해야 한 열만 바뀌고 나머지는 그대로 있다.
+    const start = widths ?? [...head.current.children].map(th => Math.round(th.getBoundingClientRect().width));
+    const handle = e.currentTarget; const x = e.clientX; let next = start;
+    handle.setPointerCapture(e.pointerId); handle.classList.add('active');
+    const move = (m: PointerEvent) => { next = start.map((w, i) => i === col ? Math.max(40, Math.round(w + m.clientX - x)) : w); setWidths(next); };
+    const end = () => {
+      handle.classList.remove('active');
+      handle.removeEventListener('pointermove', move); handle.removeEventListener('pointerup', end); handle.removeEventListener('pointercancel', end);
+      try { localStorage.setItem(widthKey, JSON.stringify(next)); } catch { /* 저장이 막힌 브라우저에서는 이번 화면에서만 유지된다. */ }
+    };
+    handle.addEventListener('pointermove', move); handle.addEventListener('pointerup', end); handle.addEventListener('pointercancel', end);
+  };
+  const resetWidths = () => { setWidths(null); try { localStorage.removeItem(widthKey); } catch { /* 위와 같다. */ } };
+
   // 병합 해제: 맨 윗줄은 값을 그대로 두고, 아랫줄들은 칸을 비워 따로 적을 수 있게 한다(스프레드시트의 병합 해제와 같다).
-  const splitButton = (label: string, rows: ComputedLine[], split: (rest: ComputedLine[]) => Promise<unknown>) => rows.length > 1 && !phone &&
+  const splitButton = (label: string, rows: ComputedLine[], split: (rest: ComputedLine[]) => Promise<unknown>) => rows.length > 1 && !touch &&
     <button type="button" className="merge-split" disabled={disabled} title="병합 해제: 맨 윗줄만 남기고 아랫줄 칸을 비웁니다" aria-label={`${label} 병합 해제`}
       onClick={() => { void split(rows.slice(1)); }}>분리</button>;
 
@@ -116,7 +152,7 @@ export function MonthSheet({ year, month, merges, history, lines: sourceLines, t
       { text: transfer ? String(transfer.remaining) : '', number: transfer?.remaining, identity: transfer ? `${transfer.id}:r` : undefined },
     ];
   });
-  const tools = useSheetTools({ year, month, lines, values, merges: merges.filter(m => m.month === month), automatic, disabled, phone, perform, onError });
+  const tools = useSheetTools({ year, month, lines, values, merges: merges.filter(m => m.month === month), automatic, disabled, touch, perform, onError });
   // [이후 달에도 반영]: 고른 칸이 있는 줄과, 이체 칸(5·6·7열)을 고른 이체 묶음. 이후 달이 만들어진 것만 대상이다.
   const pickedCells = [...tools.picked].map(key => key.split(':').map(Number));
   const laterLines = [...new Set(pickedCells.map(([row]) => lines[row]))]
@@ -244,8 +280,8 @@ export function MonthSheet({ year, month, merges, history, lines: sourceLines, t
       <button type="button" disabled={disabled || tools.editing || !tools.selectedMerges.length} onClick={() => { void tools.unmerge(); }}>병합 해제</button>
       <span className="tool-divider" />
       <button type="button" disabled={disabled || tools.editing || (!laterLines.length && !laterTransfers.length)} title="고른 줄의 지금 내용을 이미 만들어진 이후 달에도 맞춥니다" onClick={propagate}>이후 달에도 반영</button>
-      {phone && <button type="button" aria-pressed={tools.touchSelection} onClick={() => tools.setTouchSelection(!tools.touchSelection)}>셀 선택</button>}
-      <span className="selection-info" role="status">{tools.picked.size ? `${tools.picked.size}칸 선택${tools.numericCount ? ` · 합계 ${won(tools.total)}` : ''}` : phone ? '셀 선택을 켜고 범위의 양 끝을 누르세요' : '클릭 선택 · 두 번 클릭 편집'}</span>
+      {touch && <button type="button" aria-pressed={tools.touchSelection} onClick={() => tools.setTouchSelection(!tools.touchSelection)}>셀 선택</button>}
+      <span className="selection-info" role="status">{tools.picked.size ? `${tools.picked.size}칸 선택${tools.numericCount ? ` · 합계 ${won(tools.total)}` : ''}` : touch ? '셀 선택을 켜고 범위의 양 끝을 누르세요' : '클릭 선택 · 두 번 클릭 편집'}</span>
     </div>
     {used.length > 0 && <ul className="account-list" aria-label="계좌별 남은 돈">
       {used.map(t => <li key={t.id}><span>{t.account}</span><strong className={t.remaining < 0 ? 'minus' : ''}>{won(t.remaining)}</strong><small className={t.amount !== t.budget ? 'transfer-mismatch' : undefined}
@@ -253,11 +289,11 @@ export function MonthSheet({ year, month, merges, history, lines: sourceLines, t
     </ul>}
     <datalist id="sheet-methods">{methods.map(m => <option key={m.id} value={m.name} />)}</datalist>
     <datalist id="sheet-accounts">{transfers.map(t => <option key={t.id} value={t.account} />)}</datalist>
-    <div className="sheet-scroll" ref={scroller}><table className={`sheet${tools.touchSelection ? " selecting" : ""}`} ref={tools.table} {...tools.tableProps}>
-      <thead><tr>
-        <th className="d c-pay"><span className="pc">고정생활비</span><span className="m">수단</span></th><th className="name"><span className="m">고정생활비</span></th><th className="d c-cat">카테고리</th>
-        <th className="num c-num">예산</th><th className="num c-num">금액</th>
-        <th className="d c-acc" /><th className="d num c-num">이체 계좌</th><th className="d num c-num">남음</th>
+    <div className="sheet-scroll" ref={scroller}><table className={`sheet${tools.touchSelection ? " selecting" : ""}`} ref={tools.table} {...tools.tableProps}
+      style={widths ? { width: widths.reduce((a, b) => a + b, 0) } : undefined}>
+      <thead><tr ref={head}>
+        {headings.map(([className, label], col) => <th key={col} className={className} style={widths ? { width: widths[col] } : undefined}>{label}
+          <span className="col-resize" aria-hidden="true" title="끌어서 열 너비 조절 · 두 번 누르면 원래 너비" onPointerDown={resize(col)} onDoubleClick={resetWidths} /></th>)}
       </tr></thead>
       <tbody>
         {sectionRows('fixed')}{addRow('fixed')}{subtotalRow('fixed')}

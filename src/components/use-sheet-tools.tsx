@@ -7,12 +7,12 @@ import type { ComputedLine } from '../lib/calculations';
 export type SheetValue = { text: string; number?: number; identity?: string };
 type Options = {
   year: number; month: number; lines: ComputedLine[]; values: SheetValue[][]; merges: CellMerge[]; automatic: SheetArea[];
-  disabled: boolean; phone: boolean; perform: (command: object) => Promise<unknown>; onError: (message: string) => void;
+  disabled: boolean; touch: boolean; perform: (command: object) => Promise<unknown>; onError: (message: string) => void;
 };
 let copiedText = '';
 const isEditor = (target: EventTarget | null) => target instanceof Element && !!target.closest('input,textarea,select,[contenteditable="true"]');
 
-export function useSheetTools({ year, month, lines, values, merges, automatic, disabled, phone, perform, onError }: Options) {
+export function useSheetTools({ year, month, lines, values, merges, automatic, disabled, touch, perform, onError }: Options) {
   const table = useRef<HTMLTableElement>(null);
   const toolbar = useRef<HTMLDivElement>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
@@ -121,16 +121,18 @@ export function useSheetTools({ year, month, lines, values, merges, automatic, d
     else el?.querySelector<HTMLButtonElement>('.line-name')?.click();
   };
   const onPointerDown = (e: PointerEvent<HTMLTableElement>) => {
-    if (disabled || e.button !== 0 || (phone && !touchSelection)) return;
+    // 손가락·펜으로 누르면 [셀 선택]을 켰을 때만 칸을 고른다. 아니면 기본 동작대로 입력 칸에 커서가 들어가고 키보드가 뜬다.
+    const finger = e.pointerType !== 'mouse';
+    if (disabled || e.button !== 0 || (finger && !touchSelection)) return;
     if (e.target instanceof Element && e.target.closest('.line-grip,.line-delete,.merge-split,.manual-split')) return;
     if (isEditor(e.target) && document.activeElement === e.target) return;
     const at = coordinate(e.target); if (!at) return;
     e.preventDefault(); table.current?.focus({ preventScroll: true });
-    if (e.shiftKey || (phone && touchSelection && picked.size)) setPicked(rangeTo(at.row, at.col));
+    if (e.shiftKey || (finger && touchSelection && picked.size)) setPicked(rangeTo(at.row, at.col));
     else if (e.metaKey || e.ctrlKey) {
       const next = new Set(picked); for (const key of expand(new Set([cellKey(at.row, at.col)]))) { if (next.has(key)) next.delete(key); else next.add(key); } setPicked(next);
     } else { anchor.current = at; setPicked(expand(new Set([cellKey(at.row, at.col)]))); }
-    sweeping.current = !phone;
+    sweeping.current = !finger;
   };
   const onKeyDown = (e: KeyboardEvent<HTMLTableElement>) => {
     if (e.nativeEvent.isComposing || isEditor(e.target)) return;
@@ -172,7 +174,7 @@ export function useSheetTools({ year, month, lines, values, merges, automatic, d
     const selected = [...rectangle(row, row + area.rows - 1, col, col + area.cols - 1)].some(k => picked.has(k));
     const original = node.props;
     let children = original.children;
-    if (area.manual) children = <>{Children.toArray(children).filter(child => !(isValidElement<{ className?: string }>(child) && child.props.className === 'merge-split'))}<button type="button" className="manual-split" disabled={disabled || editing} aria-label="셀 병합 해제" title="원래 값을 유지한 채 병합을 해제합니다" onClick={() => { void perform({ type: 'cell-unmerge', ids: [area.manual] }); }}>분리</button></>;
+    if (area.manual && !touch) children = <>{Children.toArray(children).filter(child => !(isValidElement<{ className?: string }>(child) && child.props.className === 'merge-split'))}<button type="button" className="manual-split" disabled={disabled || editing} aria-label="셀 병합 해제" title="원래 값을 유지한 채 병합을 해제합니다" onClick={() => { void perform({ type: 'cell-unmerge', ids: [area.manual] }); }}>분리</button></>;
     const descriptions = area.manual ? [...rectangle(row, row + area.rows - 1, col, col + area.cols - 1)].map(k => { const [r, c] = k.split(':').map(Number); return values[r][c].text; }).join(' · ') : '';
     return cloneElement(node, {
       key: cellKey(row, col), className: `${original.className ?? ''}${area.manual ? ' manual-merged' : ''}`,
@@ -200,8 +202,8 @@ export function useSheetTools({ year, month, lines, values, merges, automatic, d
     tableProps: { tabIndex: 0, onPointerDown, onPointerOver: (e: PointerEvent<HTMLTableElement>) => { if (sweeping.current && e.buttons === 1) { const at = coordinate(e.target); if (at) setPicked(rangeTo(at.row, at.col)); } }, onKeyDown, onCopy, onPaste,
       onFocusCapture: (e: React.FocusEvent<HTMLTableElement>) => setEditing(isEditor(e.target)),
       onBlurCapture: (e: React.FocusEvent<HTMLTableElement>) => { if (!isEditor(e.relatedTarget)) setEditing(false); },
-      onDoubleClick: (e: React.MouseEvent<HTMLTableElement>) => { if (phone || disabled) return; const at = coordinate(e.target); if (at) startEdit(at.row, at.col); },
-      onClickCapture: (e: React.MouseEvent<HTMLTableElement>) => { if (e.detail > 0 && e.target instanceof Element && e.target.closest('.line-name') && (!phone || touchSelection)) { e.preventDefault(); e.stopPropagation(); } },
+      onDoubleClick: (e: React.MouseEvent<HTMLTableElement>) => { if (touch || disabled) return; const at = coordinate(e.target); if (at) startEdit(at.row, at.col); },
+      onClickCapture: (e: React.MouseEvent<HTMLTableElement>) => { if (e.detail > 0 && e.target instanceof Element && e.target.closest('.line-name') && (!touch || touchSelection)) { e.preventDefault(); e.stopPropagation(); } },
     },
   };
 }

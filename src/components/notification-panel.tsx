@@ -45,10 +45,14 @@ function ReviewItem({ item, methods, disabled, act }: {
   return <li className="notification-item">
     <div className="notification-meta"><strong>{item.reason ?? '미분류'}</strong><small>{item.app} · {new Date(item.receivedAt).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}</small></div>
     <pre className="notification-raw">{item.raw}</pre>
-    <form onSubmit={async event => {
+    {/* 칸 확인은 브라우저 말풍선이 아니라 아래 안내 줄이 맡는다. 폰에서는 말풍선이 안 보여 넣기가 멈춘 것처럼 보였다. */}
+    <form noValidate onSubmit={async event => {
       event.preventDefault(); setError('');
       const parsed = notificationTransactionSchema.safeParse({ date, merchant, amount: /^-?\d+$/.test(amount.replaceAll(',', '')) ? Number(amount.replaceAll(',', '')) : NaN });
-      if (!parsed.success) { setError('날짜·가맹점·금액을 확인하세요. 금액은 0이 아닌 원 단위 정수입니다.'); return; }
+      if (!parsed.success) {
+        const missing = [!/^\d{4}-\d{2}-\d{2}$/.test(date) && '결제일', !merchant.trim() && '가맹점', !/^-?\d+$/.test(amount) || Number(amount) === 0 ? '금액' : ''].filter(Boolean);
+        setError(missing.length ? `${missing.join('·')}을 적어주세요. 금액은 0이 아닌 원 단위 정수입니다.` : '날짜·가맹점·금액을 확인하세요.'); return;
+      }
       if (!selected) { setError('넣을 줄을 골라주세요.'); return; }
       await act({ type: 'save', id: item.id, transaction: parsed.data, lineId, paymentMethodId: methodId || null, remember: remember && canRemember }, '1건 넣었습니다.');
     }}>
