@@ -152,3 +152,15 @@ it('아직 오지 않은 달은 회색으로 보이고 총 원금·그래프에 
   expect(extra.principal).toBe(50);
   expect(result.history.map(h => h.month)).toEqual([11]);
 });
+
+it('기록 시작 달 전 달 칸은 막혀 있고, 거기 남은 입금은 보이지도 더해지지도 않는다', async () => {
+  const { l } = await setup();
+  await action(l, { type: 'account-save', name: '우리', kind: 'ready', target: null, principal: 0, start_month: '2026-10', series: [] });
+  await action(l, { type: 'account-save', name: '퇴직연금', kind: 'invest', target: null, principal: 1_000, start_month: '2026-12', series: [] });
+  const id = (await l.snapshot(2026, 11)).accounts.find(a => a.name === '퇴직연금')!.id;
+  await action(l, { type: 'deposit', id, year: 2026, month: 11, amount: 500 });
+  const row = (await view(l)).rows.find(r => r.account.name === '퇴직연금')!;
+  // 시작 달 전 입금은 뒤 달로 이어지지도 않는다.
+  expect(row.months.map(m => [m.month, m.before, m.amount])).toEqual([[10, true, null], [11, true, null], [12, false, null]]);
+  expect(row.principal).toBe(1_000);
+});

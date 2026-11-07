@@ -114,11 +114,13 @@ export function assetRows(accounts: Account[], lines: ComputedLine[], balances: 
     const start = startOf(account); const direct = isDirect(account); const deposit = depositAt(account);
     const months = visible.map(month => {
       const future = year * 12 + month > through;
-      if (direct) { const d = deposit(year * 12 + month); return { month, future, amount: d?.amount ?? null, carried: !!d?.carried, lineId: null }; }
+      // before: 기록 시작 달 전 달. 적어도 원금에 넣지 않으므로 칸을 막는다.
+      const before = year * 12 + month < start;
+      if (direct) { const d = before ? null : deposit(year * 12 + month); return { month, future, before, amount: d?.amount ?? null, carried: !!d?.carried, lineId: null }; }
       const own = lines.filter(l => l.year === year && l.month === month && series.has(l.series_id));
       const counted = year * 12 + month >= start && own.some(l => l.hasEntry);
       // lineId: 그 달 연결된 저축 줄이 하나면 칸에서 바로 고칠 수 있다(월별 표 그 줄 금액). 둘 이상이면 월별 표에서 고친다.
-      return { month, future, amount: counted ? safeSum(own.map(l => l.actual)) : null, carried: false, lineId: year * 12 + month >= start && own.length === 1 ? own[0].id : null };
+      return { month, future, before, amount: counted ? safeSum(own.map(l => l.actual)) : null, carried: false, lineId: year * 12 + month >= start && own.length === 1 ? own[0].id : null };
     });
     // 직접 입력 계좌의 지난해까지 입금(이어 쓴 달 포함)은 여기서 이월 원금에 더한다.
     const firstDeposit = Math.min(...deposits.filter(d => d.account_id === account.id).map(d => d.year * 12 + d.month).filter(at => at >= start));

@@ -57,12 +57,20 @@ export function AssetsView({ data, busy, perform, onError, history }: Props) {
   ]);
   const tools = useSheetTools({ year: data.year, month: today.month, lines: rows.map(r => ({ id: r.account.id, section: 'saving' as const })), values, merges: [], automatic: [],
     disabled: busy, touch, perform, onError, columns: count, mergeable: false,
+    readOnly: (row, col) => {
+      const r = rows[row];
+      if (col >= 2 && col < totalCol && r.months[col - 2].before) return `${r.account.name}은(는) 기록 시작 달이 ${Number(r.account.start_month!.slice(5, 7))}월이라 그 전 달은 적지 않습니다. 계좌 이름을 눌러 시작 달을 바꾸세요.`;
+      if (col >= 2 && col < totalCol) return `${r.account.name}에는 월별 표 저축 줄이 둘 이상 연결돼 있어 ${visible[col - 2]}월 원금은 월별 표에서 고칩니다.`;
+      if (col === valueCol) return thisYear ? '저축은 이자를 계산하지 않아 평가금액이 원금과 같습니다. 원금은 이월 원금·달 칸에서 고칩니다.' : '평가금액은 올해 화면에서 적습니다.';
+      return '총 원금과 증감은 자동으로 계산됩니다.';
+    },
     // 붙여넣기는 직접 적는 칸에만 된다: 투자 계좌의 평가금액(오늘 확인한 값), 직접 입력 계좌의 달 칸.
     paste: async changes => {
       // 값 확인을 먼저 모두 끝낸 뒤(틀린 칸이 있으면 아무것도 쓰지 않는다) 차례로 저장한다.
       const writes = changes.map((c): () => Promise<unknown> => {
         const row = rows.find(r => r.account.id === c.id)!;
         if (c.col === 1) { const amount = parseMoney(c.value) ?? 0; return () => saveOpening(row, amount); }
+        if (c.col >= 2 && c.col < totalCol && row.months[c.col - 2].before) throw new Error(`${row.account.name}은(는) 기록 시작 달 전 달에는 적을 수 없습니다.`);
         if (c.col >= 2 && c.col < totalCol && isDirect(row.account)) { const command = { type: 'deposit', id: c.id, year: data.year, month: visible[c.col - 2], amount: parseMoney(c.value, true) }; return () => perform(command); }
         const line = c.col >= 2 && c.col < totalCol ? row.months[c.col - 2].lineId : null;
         if (line) { const command = { type: 'amount', id: line, amount: parseMoney(c.value, true) }; return () => perform(command); }
@@ -88,7 +96,8 @@ export function AssetsView({ data, busy, perform, onError, history }: Props) {
   const monthSum = (i: number) => rows.some(r => r.months[i].amount !== null) ? rows.reduce((sum, r) => sum + (r.months[i].amount ?? 0), 0) : null;
   const heads: [string, React.ReactNode, number?][] = [
     ['', '계좌'], ['numeric', '이월 원금'], ...visible.map(m => ['numeric', `${m}월`, m] as [string, string, number]),
-    ['numeric asset-total stick-r r2', '총 원금'], ['numeric stick-r r1', '평가금액'], ['numeric stick-r r0', '증감'],
+    // 총 원금에 넣은 마지막 달(올해는 이번 달, 지난해는 12월). 앞으로 올 해는 이월 원금뿐이다.
+    ['numeric stick-r r2', thisYear ? `총 원금(~${today.month}월)` : data.year < today.year ? '총 원금(~12월)' : '총 원금'], ['numeric asset-key stick-r r1', '평가금액'], ['numeric stick-r r0', '증감'],
   ];
 
   return <>
@@ -98,7 +107,7 @@ export function AssetsView({ data, busy, perform, onError, history }: Props) {
     </div></div>
     {/* 은행 앱처럼 맨 위에 총 자산을 크게, 그 아래 구성(평가금액 + 묶인 돈)과 투자 성과(넣은 원금 대비 증감) */}
     <section className="asset-hero" aria-label="자산 요약">
-      <div className="asset-hero-head"><p>총 자산</p></div>
+      <div className="asset-hero-head"><p>총 자산 <span>{today.year}년 {today.month}월 {Number(today.iso.slice(8, 10))}일 기준</span></p></div>
       <p className="asset-hero-total">{won(totals.total)}<span>원</span></p>
       <dl className="asset-hero-parts">
         <div><dt>평가금액</dt><dd>{won(totals.value)}</dd></div>
@@ -138,7 +147,8 @@ export function AssetsView({ data, busy, perform, onError, history }: Props) {
             <small>{accountKinds[r.account.kind]}</small></th>,
           <td className="numeric"><MoneyCell value={r.opening || null} label={`${r.account.name} 이월 원금`} disabled={busy} onError={onError}
             onSave={amount => { void saveOpening(r, amount ?? 0); }} /></td>,
-          ...r.months.map(m => isDirect(r.account)
+          ...r.months.map(m => m.before ? <td className="numeric before" />
+            : isDirect(r.account)
             // 직접 입력 계좌: 달 칸에 바로 적는다. 앞 달에서 이어 쓴 값은 흐리게 보인다.
             ? <td className={`numeric${m.carried ? ' carried' : ''}${m.future ? ' future' : ''}`}><MoneyCell value={m.amount} signed label={`${r.account.name} ${m.month}월 입금`} disabled={busy} onError={onError}
                 onSave={amount => { void perform({ type: 'deposit', id: r.account.id, year: data.year, month: m.month, amount }); }} /></td>
@@ -147,8 +157,8 @@ export function AssetsView({ data, busy, perform, onError, history }: Props) {
               ? <td className={`numeric${m.future ? ' future' : ''}`}><MoneyCell value={m.amount} signed label={`${r.account.name} ${m.month}월 원금`} disabled={busy} onError={onError}
                   onSave={amount => { void perform({ type: 'amount', id: m.lineId!, amount }); }} /></td>
               : <td className={`numeric${m.future ? ' future' : m.amount !== null && m.amount < 0 ? ' minus' : ''}`} title={m.amount === null ? undefined : '저축 줄이 둘 이상이라 월별 표에서 고칩니다'}>{m.amount === null ? '' : won(m.amount)}</td>),
-          <td className="numeric asset-total stick-r r2" style={pin(totalCol)}>{won(r.principal)}</td>,
-          <td className="numeric asset-value stick-r r1" style={pin(valueCol)}>{r.account.kind === 'invest'
+          <td className="numeric stick-r r2" style={pin(totalCol)}>{won(r.principal)}</td>,
+          <td className="numeric asset-value asset-key stick-r r1" style={pin(valueCol)}>{r.account.kind === 'invest'
             ? <><MoneyCell value={r.value} label={`${r.account.name} 평가금액`} disabled={busy || !thisYear} onError={onError}
                 onSave={amount => { void perform({ type: 'balance', id: r.account.id, year: today.year, month: today.month, amount, checked_on: amount === null ? null : today.iso }); }} />
               <small>{checked(r.checkedOn, data.year) ?? '적은 값 없음'}</small></>
@@ -160,7 +170,7 @@ export function AssetsView({ data, busy, perform, onError, history }: Props) {
       <tfoot><tr>
         <th scope="row">합계</th><td className="numeric">{won(rows.reduce((sum, r) => sum + r.opening, 0))}</td>
         {visible.map((m, i) => { const sum = monthSum(i); return <td key={m} className={`numeric${rows[0]?.months[i].future ? ' future' : ''}`}>{sum === null ? '' : won(sum)}</td>; })}
-        <td className="numeric asset-total stick-r r2" style={pin(totalCol)}>{won(totals.principal)}</td><td className="numeric stick-r r1" style={pin(valueCol)}>{won(totals.value)}</td>
+        <td className="numeric stick-r r2" style={pin(totalCol)}>{won(totals.principal)}</td><td className="numeric asset-key stick-r r1" style={pin(valueCol)}>{won(totals.value)}</td>
         <td className={`numeric stick-r r0${totals.change < 0 ? ' minus' : ''}`} style={pin(count - 1)}>{signed(totals.change)}</td>
       </tr></tfoot>
     </table></div>

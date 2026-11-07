@@ -309,6 +309,7 @@ label input, label select { width: 100%; min-width: 0; height: 32px; border: 1px
 .asset-hero { max-width: 880px; margin: 0 0 18px; padding: 24px 28px 22px; border-radius: var(--radius-frame); background: var(--white); }
 .asset-hero-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .asset-hero-head p { margin: 0; font-size: 13px; color: var(--slate); }
+.asset-hero-head p span { margin-left: 6px; font-size: 12px; color: var(--dust); }
 .asset-hero-total { margin: 4px 0 18px; font-size: 40px; font-weight: 600; line-height: 1.15; letter-spacing: -.03em; font-variant-numeric: tabular-nums; color: var(--ink); }
 .asset-hero-total span { margin-left: 4px; font-size: 20px; font-weight: 500; letter-spacing: 0; }
 .asset-hero-parts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 0; padding-top: 16px; border-top: 1px solid var(--grid); }
@@ -325,10 +326,13 @@ label input, label select { width: 100%; min-width: 0; height: 32px; border: 1px
 .asset-table thead tr > :first-child { background: var(--ink); }
 .asset-table th[scope="row"] small { display: block; font-size: 10px; line-height: 1.1; color: var(--slate); }
 .asset-table td.carried .money-input { color: var(--slate); }
+/* 기록 시작 달 전 달: 빗금 없이 옅은 바탕으로 비워 둔다 */
+.asset-table td.before { background: var(--canvas); }
 /* 아직 오지 않은 달: 회색, 총 원금에 넣지 않는다 */
 .asset-table td.future, .asset-table td.future .money-input { color: var(--dust); }
-.asset-table .asset-total { background: var(--total); font-weight: 500; }
-.asset-table thead .asset-total { background: var(--ink); }
+/* 강조 칸은 평가금액: 지금 실제로 가진 돈 */
+.asset-table .asset-key { background: var(--total); font-weight: 500; }
+.asset-table thead .asset-key { background: var(--ink); }
 .asset-table td small, .locked-table td small { display: block; font-size: 10px; line-height: 1.1; color: var(--slate); }
 .asset-table td.asset-value { min-width: 128px; }
 .asset-subhead { margin: 28px 0 10px; }
@@ -342,8 +346,9 @@ label input, label select { width: 100%; min-width: 0; height: 32px; border: 1px
 @media (min-width: 701px) {
   .asset-table .stick-r { position: sticky; z-index: 1; background: var(--white); }
   .asset-table thead .stick-r { background: var(--ink); }
-  .asset-table .stick-r.asset-total { background: var(--total); box-shadow: -1px 0 0 var(--grid); }
-  .asset-table thead .stick-r.asset-total { background: var(--ink); }
+  .asset-table .stick-r.r2 { box-shadow: -1px 0 0 var(--grid); }
+  .asset-table .stick-r.asset-key { background: var(--total); }
+  .asset-table thead .stick-r.asset-key { background: var(--ink); }
   .asset-table .stick-r { box-sizing: border-box; }
   .asset-table .r0 { right: 0; width: 120px; min-width: 120px; max-width: 120px; }
   .asset-table .r1 { right: 120px; width: 150px; min-width: 150px; max-width: 150px; }

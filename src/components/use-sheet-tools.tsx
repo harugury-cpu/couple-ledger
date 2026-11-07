@@ -10,11 +10,13 @@ type Options = {
   year: number; month: number; lines: Pick<MonthLine, 'id' | 'section'>[]; values: SheetValue[][]; merges: CellMerge[]; automatic: SheetArea[];
   disabled: boolean; touch: boolean; perform: (command: object) => Promise<unknown>; onError: (message: string) => void;
   columns?: number; paste?: (changes: SheetChange[]) => Promise<unknown>; mergeable?: boolean;
+  // 직접 고칠 수 없는 칸을 편집하려 할 때 보여 줄 안내(어디서 고치는지). 없으면 일반 안내.
+  readOnly?: (row: number, col: number) => string;
 };
 let copiedText = '';
 const isEditor = (target: EventTarget | null) => target instanceof Element && !!target.closest('input,textarea,select,[contenteditable="true"]');
 
-export function useSheetTools({ year, month, lines, values, merges, automatic, disabled, touch, perform, onError, columns = 8, paste: pasteChanges, mergeable = true }: Options) {
+export function useSheetTools({ year, month, lines, values, merges, automatic, disabled, touch, perform, onError, columns = 8, paste: pasteChanges, mergeable = true, readOnly }: Options) {
   const lastCol = columns - 1;
   const table = useRef<HTMLTableElement>(null);
   const toolbar = useRef<HTMLDivElement>(null);
@@ -121,7 +123,11 @@ export function useSheetTools({ year, month, lines, values, merges, automatic, d
         }
       });
     } else if (select && !select.disabled) { select.focus(); try { select.showPicker?.(); } catch { /* 키보드로 고를 수 있다. */ } }
-    else el?.querySelector<HTMLButtonElement>('.line-name')?.click();
+    else {
+      const name = el?.querySelector<HTMLButtonElement>('.line-name');
+      // 고칠 수 있는 것이 없는 칸은 아무 반응 없이 넘어가지 않고, 왜 못 고치는지와 고칠 곳을 알려 준다.
+      if (name && !name.disabled) name.click(); else if (el && !disabled) onError(readOnly?.(row, col) ?? '이 칸은 자동으로 계산되어 직접 고칠 수 없습니다.');
+    }
   };
   const onPointerDown = (e: PointerEvent<HTMLTableElement>) => {
     // 손가락·펜으로 누르면 [셀 선택]을 켰을 때만 칸을 고른다. 아니면 기본 동작대로 입력 칸에 커서가 들어가고 키보드가 뜬다.
