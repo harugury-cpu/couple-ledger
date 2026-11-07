@@ -74,7 +74,8 @@ export function balanceHistory(accounts: Account[], balances: AccountBalance[], 
   return Array.from({ length: last }, (_, i) => accountRows(accounts, balances, year, i + 1))
     .flatMap((rows, i) => rows.some(r => r.latest) ? [{ month: i + 1, assets: accountTotals(rows).total }] : []);
 }
-export function savingsRows(year: number, lines: ComputedLine[], uses: { year: number; month: number; amount: number }[], opening: number) {
+// through: 자산 누적을 이 달까지만 센다. 자동 줄은 앞으로 올 달 금액도 미리 채워 두므로, 아직 하지 않은 저축이 자산에 들어가지 않게 한다.
+export function savingsRows(year: number, lines: ComputedLine[], uses: { year: number; month: number; amount: number }[], opening: number, through?: { year: number; month: number }) {
   let assets = opening;
   return Array.from({ length: 12 }, (_, i) => {
     const month = i + 1; const saving = lines.filter(l => l.year === year && l.month === month && l.section === 'saving');
@@ -82,7 +83,7 @@ export function savingsRows(year: number, lines: ComputedLine[], uses: { year: n
     const b = total(saving.filter(l => l.saving_owner === 'b')).actual;
     const extra = total(saving.filter(l => l.saving_owner === 'extra')).actual;
     const used = safeSum(uses.filter(u => u.year === year && u.month === month).map(u => u.amount));
-    assets = safeSum([assets, a, b, extra, -used]);
+    if (!through || year * 12 + month <= through.year * 12 + through.month) assets = safeSum([assets, a, b, extra, -used]);
     return { month, a, b, extra, used, assets };
   });
 }

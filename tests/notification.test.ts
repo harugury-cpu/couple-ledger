@@ -303,12 +303,12 @@ describe.each([false, true])('MacroDroid 서버와 웹 API (D1=%s)', d1 => {
         expect(archive.data.notification_events.some(e => e.entry_id === entry.id)).toBe(true);
     }
   });
-  it('미래 청구월의 자동 금액 대기 상태도 복원한다', async () => {
+  it('미래 청구월도 자동 금액을 채운 상태로 만들고 그대로 복원한다', async () => {
     const { ledger, inbox } = await prepared(d1, true);
     await inbox.receive(input);
     const archive = await ledger.exportArchive();
     const restored = await prepared(d1); await restored.ledger.importArchive(archive);
-    expect((await restored.ledger.db.select().from(ledgerMonths)).find(m => m.month === 11)?.auto_filled).toBe(false);
+    expect((await restored.ledger.db.select().from(ledgerMonths)).find(m => m.month === 11)?.auto_filled).toBe(true);
   });
   it('예전 백업은 새 열·표 없이도 읽히고 이전 알림함을 대체한다', async () => {
     const { ledger, inbox } = await prepared(d1);

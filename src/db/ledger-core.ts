@@ -60,7 +60,6 @@ export class LedgerCore {
   }
 
   // ── 달 만들기 ─────────────────────────────────────────────
-  private isDue(year: number, month: number) { const t = this.today(); return monthIndex(year, month) <= monthIndex(t.year, t.month); }
   private async memberId() {
     const [member] = await this.db.select().from(s.members).limit(1);
     if (!member) throw new Error('가계부 주인 정보가 없습니다.');
@@ -84,12 +83,12 @@ export class LedgerCore {
     const plans: MonthPlan[] = [];
     for (let index = start; index <= target; index++) {
       const { year: y, month: m } = fromIndex(index);
-      plans.push(planMonth(y, m, base, { due: this.isDue(y, m), memberId, categoryIds, methodIds }));
+      plans.push(planMonth(y, m, base, { memberId, categoryIds, methodIds }));
     }
     return plans;
   }
   // 그 달을 실제로 만든다(고치기 직전에 부른다). 직전 달과의 사이에 빈 달이 있으면 같이 만든다.
-  // 이미 있는 달이면, 미리 만들어 두었던 달이 이제 이번 달·지난 달이 되었을 때 자동 금액만 채운다.
+  // 이미 있는 달이면, 예전에 자동 금액 없이 만들어 둔 달(auto_filled=false)의 자동 금액만 채운다.
   // 같은 계획을 두 번 보내도 id가 같아 중복되지 않는다(INSERT OR IGNORE).
   async ensureMonth(year: number, month: number) {
     await this.store.batch((await this.planMonthWrites(year, month)).map(s => ({ ...s, history: false })));
@@ -100,7 +99,7 @@ export class LedgerCore {
     const months = await this.db.select().from(s.ledgerMonths);
     const existing = months.find(m => m.year === year && m.month === month);
     if (existing) {
-      return !existing.auto_filled && this.isDue(year, month) ? this.planAutoWrites(year, month) : [];
+      return !existing.auto_filled ? this.planAutoWrites(year, month) : [];
     }
     const statements: Statement[] = [];
     for (const plan of await this.plansUpTo(year, month, months, false)) {
@@ -149,9 +148,9 @@ export class LedgerCore {
       this.db.select().from(s.matchRules),
       this.db.select().from(s.cellMerges).where(eq(s.cellMerges.year, year)),
     ]);
-    // 미리 만들어 둔 달이 이번 달·지난 달이 되었으면, 아직 넣지 않은 자동 금액을 넣은 것처럼 보여 준다(고칠 때 실제로 넣는다).
+    // 예전에 자동 금액 없이 만들어 둔 달은, 아직 넣지 않은 자동 금액을 넣은 것처럼 보여 준다(고칠 때 실제로 넣는다).
     const entered = new Set(entries.map(e => e.month_line_id));
-    const pending = allMonths.filter(m => m.year === year && !m.auto_filled && this.isDue(m.year, m.month));
+    const pending = allMonths.filter(m => m.year === year && !m.auto_filled);
     const memberId = pending.length ? await this.memberId() : '';
     const fills = pending.flatMap(m => autoEntries(lines.filter(l => sameMonth(l, m) && !entered.has(l.id)), memberId));
     const future = await this.db.select({ series_id: s.monthLines.series_id }).from(s.monthLines).where(sql`${s.monthLines.year} * 12 + ${s.monthLines.month} > ${year * 12 + month}`);
@@ -340,6 +339,18 @@ export class LedgerCore {
     return byLine;
   }
 
+  // 앞으로 올 달의 자동 줄은 금액이 예산을 따라간다: 예산을 바꾸면 자동 금액도 같이 바뀐다(예전에 그 달이 올 때 최신 예산으로 채우던 것과 같은 결과).
+  // 손으로 고친 기록(manual·quick·paste)은 두고 그만큼을 뺀다. 알림·명세서로 들어온 돈은 따로 더해진다. 이번 달·지난 달은 건드리지 않는다.
+  async syncFutureAuto() {
+    await this.init();
+    const t = this.today();
+    const target = `(SELECT l.budget FROM month_lines l WHERE l.id = entries.month_line_id)
+      - (SELECT COALESCE(SUM(o.amount), 0) FROM entries o WHERE o.month_line_id = entries.month_line_id AND o.id <> entries.id AND o.source IN ('manual', 'quick', 'paste'))`;
+    await this.store.batch([{ sql: `UPDATE entries SET amount = ${target}
+      WHERE source = 'auto' AND amount <> ${target}
+        AND month_line_id IN (SELECT id FROM month_lines WHERE input_mode = 'fixed' AND year * 12 + month > ?)`, params: [t.year * 12 + t.month], history: false }]);
+  }
+
   // ── 금액·예산 ────────────────────────────────────────────
   // 자동(매달 같은 금액) 줄은 금액이 곧 다음 달에 이어질 금액이다: 예산을 같이 맞추고, future면 이미 만든 이후 달의 예산·자동 금액도 바꾼다.
   async setAmount(id: string, amount: number | null, future = false) {
@@ -388,6 +399,7 @@ export class LedgerCore {
     const line: s.MonthLine = { ...valid, id, year, month, series_id, sort: Math.max(-1, ...rows.map(l => l.sort)) + 1 };
     statements.push(...this.insert(s.monthLines, [line]));
     if (amount !== undefined) statements.push(...this.insert(s.entries, [{ id: crypto.randomUUID(), month_line_id: id, amount, source: 'quick', raw_text: valid.name, created_by: await this.memberId(), created_at: new Date().toISOString() }]));
+    else statements.push(...this.insert(s.entries, autoEntries([line], await this.memberId()), true));
     statements.push(...this.transferWrites(year, month, [...rows, line], await this.monthTransfers(year, month), created ? [created] : []), ...this.pruneMerges(year, month));
     if (future && !valid.one_off) {
       const own = valid.transfer_key ? created ?? (await this.monthTransfers(year, month)).find(t => t.series_id === valid.transfer_key) : undefined;
@@ -398,7 +410,7 @@ export class LedgerCore {
         const existing = await this.monthTransfers(m.year, m.month);
         const added = own && !existing.some(t => t.series_id === own.series_id) ? [{ ...own, id: crypto.randomUUID(), year: m.year, month: m.month }] : [];
         const copy: s.MonthLine = { ...valid, id: crypto.randomUUID(), year: m.year, month: m.month, series_id, sort: Math.max(-1, ...monthRows.map(l => l.sort)) + 1 };
-        statements.push(...this.insert(s.monthLines, [copy]), ...this.transferWrites(m.year, m.month, [...monthRows, copy], existing, added), ...this.pruneMerges(m.year, m.month));
+        statements.push(...this.insert(s.monthLines, [copy]), ...this.insert(s.entries, autoEntries([copy], await this.memberId()), true), ...this.transferWrites(m.year, m.month, [...monthRows, copy], existing, added), ...this.pruneMerges(m.year, m.month));
       }
     }
     await this.store.batch(statements);
@@ -419,6 +431,12 @@ export class LedgerCore {
     if (transferAccount === undefined) valid.transfer_key = line.transfer_key;
     else ({ key: valid.transfer_key, created } = await this.transferKey(line.year, line.month, transferAccount, line.transfer_key));
     statements.push(toStatement(this.db.update(s.monthLines).set(valid).where(where)));
+    // 자동으로 바뀐 줄은 기록이 없으면 그 자리에서 예산만큼 채운다.
+    const turned = affected.filter(r => r.input_mode !== 'fixed' && valid.input_mode === 'fixed');
+    if (turned.length) {
+      const entered = new Set((await this.db.select({ id: s.entries.month_line_id }).from(s.entries).where(inArray(s.entries.month_line_id, turned.map(r => r.id)))).map(e => e.id));
+      statements.push(...this.insert(s.entries, autoEntries(turned.filter(r => !entered.has(r.id)).map(r => ({ ...r, ...valid })), await this.memberId()), true));
+    }
     const own = valid.transfer_key ? created ?? (await this.monthTransfers(line.year, line.month)).find(t => t.series_id === valid.transfer_key) : undefined;
     // 바뀐 줄이 있는 달마다: 이후 달에도 같은 묶음이 있게 하고, 이체 묶음을 규칙에 맞추고, 줄이 없는 묶음을 지운다.
     const affectedIds = new Set(affected.map(r => r.id));

@@ -32,8 +32,8 @@ export function autoEntries(lines: MonthLine[], memberId: string): Entry[] {
 }
 
 // base: 직전에 실제로 있는 달의 줄·이체 계좌. 없으면 양식(seed)으로 시작한다(양식 달은 자동 금액을 넣지 않는다 — 예전과 같음).
-// due: 그 달이 이번 달이거나 지난 달이면 true. 앞으로 올 달은 자동 금액을 미리 넣지 않는다.
-export function planMonth(year: number, month: number, base: MonthBase | null, options: { due: boolean; memberId: string; categoryIds: Set<string>; methodIds: Set<string> }): MonthPlan {
+// 자동(매달 같은 금액) 줄은 달을 만드는 순간 금액을 채운다. 앞으로 올 달도 미리 채워 둔다.
+export function planMonth(year: number, month: number, base: MonthBase | null, options: { memberId: string; categoryIds: Set<string>; methodIds: Set<string> }): MonthPlan {
   if (!base) {
     const lines = initialLines(year, month).map(l => ({
       ...l, id: lineId(year, month, l.series_id),
@@ -45,8 +45,7 @@ export function planMonth(year: number, month: number, base: MonthBase | null, o
   const lines = base.lines.filter(l => !l.one_off).map(l => ({ ...l, id: lineId(year, month, l.series_id), year, month })).sort((a, b) => a.sort - b.sort);
   const keys = new Set(lines.map(l => l.transfer_key));
   const transfers = base.transfers.filter(t => keys.has(t.series_id)).map(t => ({ ...t, id: transferId(year, month, t.series_id), year, month }));
-  const entries = options.due ? autoEntries(lines, options.memberId) : [];
-  return { month: { year, month, special_prompt_seen: false, auto_filled: options.due }, lines, transfers, entries };
+  return { month: { year, month, special_prompt_seen: false, auto_filled: true }, lines, transfers, entries: autoEntries(lines, options.memberId) };
 }
 
 // 이체 묶음의 줄이 표에서 이어지도록, 묶음에 들어온 줄을 묶음의 마지막 줄 바로 아래로 옮긴 순서를 돌려준다. 옮길 필요가 없으면 그대로.

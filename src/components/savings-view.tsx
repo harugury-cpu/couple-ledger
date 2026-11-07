@@ -8,7 +8,9 @@ import { useOwnerNames } from './owner-names';
 export function SavingsView({ data, busy, perform, onError }: { data: Snapshot; busy: boolean; perform: (command: object) => Promise<unknown>; onError: (message: string) => void }) {
   const owners = useOwnerNames();
   const opening = data.years.find(y => y.year === data.year)?.opening_balance ?? 0;
-  const rows = savingsRows(data.year, computeLines(data.lines, data.entries, data.adjustments), data.uses, opening);
+  const now = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: 'numeric' }).formatToParts(new Date());
+  const through = { year: Number(now.find(p => p.type === 'year')!.value), month: Number(now.find(p => p.type === 'month')!.value) };
+  const rows = savingsRows(data.year, computeLines(data.lines, data.entries, data.adjustments), data.uses, opening, through);
   const totals = { a: 0, b: 0, extra: 0, used: 0, assets: rows[11].assets };
   rows.forEach(r => { totals.a += r.a; totals.b += r.b; totals.extra += r.extra; totals.used += r.used; });
   return <><div className="section-heading"><div><h2>자산 변동</h2><p className="muted">저축 기록이 명의별로 합산됩니다. 사용액과 이월 잔액은 직접 입력합니다.</p></div></div>

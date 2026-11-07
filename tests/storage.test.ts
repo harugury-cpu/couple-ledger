@@ -8,6 +8,9 @@ import { createD1Ledger } from '../src/db/ledger-d1';
 import { LibsqlStore, migrateLocal } from '../src/db/store-libsql';
 import type { Statement } from '../src/db/store';
 import { computeLines, savingsRows } from '../src/lib/calculations';
+import { runLedgerAction } from '../src/db/ledger-action';
+import { commandSchema } from '../src/lib/validation';
+const action = (l: Ledger, command: unknown) => runLedgerAction(l, commandSchema.parse(command), crypto.randomUUID());
 import type { LineInput } from '../src/lib/validation';
 import { FakeD1 } from './fake-d1';
 
@@ -34,7 +37,7 @@ it('달을 보기만 하면 DB에 쓰지 않는다 (앞으로 올 달·연도 �
   expect((await l.exportArchive()).data).toEqual(archive);
 });
 
-it('앞으로 올 달은 줄·예산만 이어받아 보여 주고, 자동 금액은 그 달이 되어야 넣는다', async () => {
+it('앞으로 올 달도 자동 금액을 바로 채우고, 예산을 바꾸면 따라 바뀌며, 자산 누적에는 이번 달까지만 들어간다', async () => {
   const l = make(); await l.ensureMonth(2026, 10);
   const saving = (await l.month(2026, 10)).find(r => r.section === 'saving' && r.input_mode === 'fixed')!;
   await l.setBudget(saving.id, 400000);
@@ -42,25 +45,24 @@ it('앞으로 올 달은 줄·예산만 이어받아 보여 주고, 자동 금�
   const nov = await l.snapshot(2026, 11);
   const novSaving = nov.lines.find(r => r.month === 11 && r.series_id === saving.series_id)!;
   expect(novSaving.budget).toBe(400000);
-  expect(nov.entries.some(e => e.month_line_id === novSaving.id)).toBe(false);
-  // 저축 화면 자산 누적에 아직 안 한 11·12월 저축이 들어가지 않는다.
-  const rows = savingsRows(2026, computeLines(nov.lines, nov.entries, nov.adjustments), nov.uses, 0);
+  expect(nov.entries.find(e => e.month_line_id === novSaving.id)).toMatchObject({ amount: 400000, source: 'auto' });
+  // 저축 화면 자산 누적에는 아직 안 한 11·12월 저축이 들어가지 않는다.
+  const rows = savingsRows(2026, computeLines(nov.lines, nov.entries, nov.adjustments), nov.uses, 0, { year: 2026, month: 10 });
+  expect(rows[10].a + rows[10].b + rows[10].extra).toBeGreaterThan(0);
   expect(rows[10].assets).toBe(rows[9].assets); expect(rows[11].assets).toBe(rows[9].assets);
-  // 11월 금액을 미리 고치면 11월이 만들어지지만 자동 금액은 아직 넣지 않는다.
+  // 11월을 만들면 자동 금액이 실제로 들어간다.
   const gas = nov.lines.find(r => r.month === 11 && r.name === '가스비')!;
   await l.setAmount(gas.id, 30000);
-  let snap = await l.snapshot(2026, 11);
-  expect(snap.months.find(m => m.month === 11)).toMatchObject({ auto_filled: false });
-  expect(snap.entries.filter(e => e.source === 'auto')).toHaveLength(0);
-  // 11월이 되면 자동 금액이 보이고(쓰기 없음), 11월을 고치는 순간 실제로 들어간다.
-  now = { year: 2026, month: 11 };
-  const before = await counts(l);
-  snap = await l.snapshot(2026, 11);
+  const snap = await l.snapshot(2026, 11);
+  expect(snap.months.find(m => m.month === 11)).toMatchObject({ auto_filled: true });
   expect(snap.entries.find(e => e.month_line_id === novSaving.id)).toMatchObject({ amount: 400000, source: 'auto' });
-  expect(await counts(l)).toEqual(before);
-  await l.setAmount(gas.id, 31000);
-  expect((await l.exportArchive()).data.entries.filter(e => e.month_line_id === novSaving.id).map(e => e.amount)).toEqual([400000]);
-  expect((await l.snapshot(2026, 11)).months.find(m => m.month === 11)).toMatchObject({ auto_filled: true });
+  // 앞으로 올 달의 자동 금액은 예산을 따라간다(이번 달 10월 금액은 그대로).
+  await action(l, { type: 'budget', id: novSaving.id, amount: 450000 });
+  expect((await l.exportArchive()).data.entries.filter(e => e.month_line_id === novSaving.id).map(e => e.amount)).toEqual([450000]);
+  // 그 달이 지나 이번 달이 되면 예산을 바꿔도 이미 들어간 금액은 그대로다.
+  now = { year: 2026, month: 11 };
+  await action(l, { type: 'budget', id: novSaving.id, amount: 500000 });
+  expect((await l.exportArchive()).data.entries.filter(e => e.month_line_id === novSaving.id).map(e => e.amount)).toEqual([450000]);
 });
 
 it('이번 달이 아직 없으면 자동 금액까지 넣은 모습으로 보여 주고, 그대로 만들어진다', async () => {
