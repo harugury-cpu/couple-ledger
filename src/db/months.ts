@@ -3,6 +3,7 @@
 // 그래서 id를 (달, series)로 정해지게 만든다: 가상으로 본 줄의 id가 그대로 실제 줄의 id가 된다.
 import type { Entry, LedgerMonth, MonthLine, Transfer } from './schema';
 import { initialLines } from './seed';
+import { sheetSections } from '../lib/sheet-grid';
 
 export const monthIndex = (year: number, month: number) => year * 12 + month - 1;
 export const fromIndex = (index: number) => ({ year: Math.floor(index / 12), month: index % 12 + 1 });
@@ -49,16 +50,30 @@ export function planMonth(year: number, month: number, base: MonthBase | null, o
 }
 
 // 이체 묶음의 줄이 표에서 이어지도록, 묶음에 들어온 줄을 묶음의 마지막 줄 바로 아래로 옮긴 순서를 돌려준다. 옮길 필요가 없으면 그대로.
-export function placeWithTransfer<T extends Pick<MonthLine, 'id' | 'section' | 'transfer_key'>>(rows: T[], lineIdToPlace: string): T[] {
-  const at = rows.findIndex(r => r.id === lineIdToPlace);
-  const line = rows[at];
-  if (!line?.transfer_key) return rows;
-  const sameGroup = (r?: T) => !!r && r.section === line.section && r.transfer_key === line.transfer_key;
-  if (sameGroup(rows[at - 1]) || sameGroup(rows[at + 1])) return rows;
-  const others = rows.filter(r => r.id !== line.id);
-  let last = -1;
-  others.forEach((r, i) => { if (sameGroup(r)) last = i; });
-  if (last < 0) return rows;
-  others.splice(last + 1, 0, line);
-  return others;
+// 이체 묶음 = 같은 구역에서 표에 이어져 있고 이체 계좌 이름이 같은 줄들. 이름이 같아도 떨어져 있으면 따로 묶음이다.
+// 줄을 추가·수정·이동·삭제한 뒤 그 달의 줄과 묶음을 이 규칙에 맞춘다(같은 입력이면 같은 결과).
+// - 한 묶음이 여러 덩어리로 흩어졌으면 첫 덩어리가 묶음과 이체 금액을 갖고, 나머지 덩어리는 새 묶음(이체 금액 = 그 줄들의 예산 합계)이 된다.
+// - 붙어 있는 이름 같은 묶음 여럿은 윗 묶음 하나로 합친다(이체 금액은 윗 묶음 값).
+export function settleTransfers(year: number, month: number, rows: MonthLine[], transfers: Transfer[], newId: () => string = () => crypto.randomUUID()) {
+  const byKey = new Map(transfers.map(t => [t.series_id, t]));
+  const sorted = [...rows].sort((a, b) => a.sort - b.sort);
+  const ordered = sheetSections.flatMap(section => sorted.filter(r => r.section === section));
+  const account = (r: MonthLine) => (r.transfer_key ? byKey.get(r.transfer_key)?.account : undefined);
+  const claimed = new Set<string>(); const relink: { id: string; key: string }[] = []; const created: Transfer[] = [];
+  for (let i = 0; i < ordered.length;) {
+    const name = account(ordered[i]);
+    if (name === undefined) { i++; continue; }
+    let j = i + 1;
+    while (j < ordered.length && ordered[j].section === ordered[i].section && account(ordered[j]) === name) j++;
+    const run = ordered.slice(i, j);
+    let key = run.map(r => r.transfer_key!).find(k => !claimed.has(k));
+    if (!key) {
+      const transfer: Transfer = { id: newId(), year, month, series_id: newId(), account: name, amount: run.reduce((sum, r) => sum + Math.max(0, r.budget), 0) };
+      created.push(transfer); key = transfer.series_id;
+    }
+    claimed.add(key);
+    for (const r of run) if (r.transfer_key !== key) relink.push({ id: r.id, key });
+    i = j;
+  }
+  return { relink, created, unused: transfers.filter(t => !claimed.has(t.series_id)) };
 }

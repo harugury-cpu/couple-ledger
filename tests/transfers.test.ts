@@ -47,15 +47,27 @@ it('새 달은 계좌 묶음과 이체 금액을 이어받고 쓴 돈은 비운�
   expect(await rows(2026, 2)).toHaveLength(1);
 });
 
-it('묶음에 들어온 줄은 묶음의 마지막 줄 바로 아래로 옮겨져 병합 칸이 하나로 이어진다', async () => {
-  const { gas } = await setup();
+it('이름이 같아도 떨어져 있는 줄은 따로 묶음이고, 붙은 줄은 한 묶음이며 줄 자리는 그대로다', async () => {
+  const { loan, gas } = await setup();
+  const before = (await l.month(2026, 1)).map(r => r.id);
   const { id, year, month, series_id, sort, ...fields } = gas;
   await l.updateLine(id, fields, false, 'A은행');
+  expect((await l.month(2026, 1)).map(r => r.id)).toEqual(before);
+  const all = await rows(2026, 1);
+  expect(all.filter(t => t.account === 'A은행').map(t => t.lineCount).sort()).toEqual([1, 2]);
+  // 떨어진 가스비 묶음은 이체 금액을 따로 갖는다. 원래 묶음(대출 이자·실비 보험)의 금액은 그대로다.
+  expect(all.find(t => t.lineCount === 2)!.amount).toBe(450000);
+  // 붙은 자리로 옮기면 한 묶음으로 합쳐지고 윗 묶음의 이체 금액을 쓴다.
   const fixed = (await l.month(2026, 1)).filter(r => r.section === 'fixed');
-  const group = fixed.map((r, i) => (r.transfer_key ? i : -1)).filter(i => i >= 0);
-  expect(group).toHaveLength(3);
-  expect(group[2] - group[0]).toBe(2);
-  expect(fixed[group[2]].name).toBe('가스비');
+  await l.moveLine(id, fixed.findIndex(r => r.id === loan.id));
+  const merged = await rows(2026, 1);
+  expect(merged.filter(t => t.account === 'A은행')).toHaveLength(1);
+  expect(merged[0]).toMatchObject({ lineCount: 3, amount: 450000 });
+  // 다시 떼어 놓으면 아래 덩어리는 새 묶음이 되고 이체 금액은 그 줄들의 예산 합계로 시작한다.
+  await l.moveLine(id, 999);
+  const split = await rows(2026, 1);
+  expect(split.filter(t => t.account === 'A은행').map(t => t.lineCount).sort()).toEqual([1, 2]);
+  expect(split.find(t => t.lineCount === 1)!.amount).toBe(gas.budget);
 });
 
 it('줄을 끌어 옮기면 같은 구역 안의 그 자리로만 순서가 바뀐다', async () => {
@@ -100,13 +112,14 @@ it('이체 계좌 묶음도 JSON으로 내보내고 그대로 복원된다', asy
   expect(restored.data.month_lines.filter(r => r.transfer_key).length).toBe(2);
 });
 
-it('같은 달에 같은 이름의 이체 계좌를 둘 만들 수 없다', async () => {
+it('떨어진 묶음은 같은 이름으로 바꿔도 따로 남는다', async () => {
   const { gas } = await setup();
   const { id, year, month, series_id, sort, ...fields } = gas;
   await l.updateLine(id, fields, false, 'E은행');
   const s = await l.snapshot(2026, 1);
   const other = s.transfers.find(t => t.account === 'E은행')!;
-  await expect(l.saveTransfer(other.id, { account: 'A은행' })).rejects.toThrow();
+  await l.saveTransfer(other.id, { account: 'A은행' });
+  expect((await rows(2026, 1)).map(t => t.account)).toEqual(['A은행', 'A은행']);
 });
 
 it('이체 금액·계좌 이름은 고를 때만 이미 만든 이후 달에도 반영된다', async () => {
@@ -137,4 +150,15 @@ it('자동 줄의 금액을 고치면 예산이 같이 바뀌고, 고를 때 이
   expect(await actualOf(2)).toMatchObject({ budget: 300000, actual: 300000 });
   // 아직 안 만든 달은 마지막 달을 이어받는다
   expect((await actualOf(3)).budget).toBe(300000);
+});
+
+it('구역이 다르면 이름이 같고 표에서 맞닿아도 따로 묶음이다(월세·우리 적금)', async () => {
+  const { settleTransfers } = await import('../src/db/months');
+  const line = (id: string, section: 'fixed' | 'saving', sort: number, budget: number) =>
+    ({ id, section, sort, budget, transfer_key: 'w', year: 2026, month: 11 }) as Parameters<typeof settleTransfers>[2][number];
+  const rows = [line('rent', 'fixed', 16, 300000), line('saving', 'saving', 21, 300000)];
+  let n = 0;
+  const result = settleTransfers(2026, 11, rows, [{ id: 't', year: 2026, month: 11, series_id: 'w', account: '우리(7일)', amount: 300000 }], () => `new${n++}`);
+  expect(result.created).toEqual([{ id: 'new0', year: 2026, month: 11, series_id: 'new1', account: '우리(7일)', amount: 300000 }]);
+  expect(result.relink).toEqual([{ id: 'saving', key: 'new1' }]);
 });

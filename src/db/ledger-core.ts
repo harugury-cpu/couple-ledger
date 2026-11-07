@@ -12,7 +12,7 @@ import { and, asc, eq, getTableColumns, inArray, sql, type SQL } from 'drizzle-o
 import { SQLiteAsyncDialect, type SQLiteTable } from 'drizzle-orm/sqlite-core';
 import * as s from './schema';
 import { categoryNames, paymentNames } from './seed';
-import { autoEntries, autoEntryId, fromIndex, monthIndex, placeWithTransfer, planMonth, scopedMonth, type MonthBase, type MonthPlan } from './months';
+import { autoEntries, autoEntryId, fromIndex, monthIndex, planMonth, settleTransfers, scopedMonth, type MonthBase, type MonthPlan } from './months';
 import { toStatement, type LedgerStore, type Statement } from './store';
 import { safeSum } from '../lib/calculations';
 import { validateArchive, type Archive } from '../lib/archive';
@@ -216,7 +216,9 @@ export class LedgerCore {
             const name = change.value.trim();
             if (!name) { patch.transfer_key = null; break; }
             nameValue.parse(name);
-            let transfer = [...transfers, ...newTransfers].find(t => t.account === name);
+            // 이름만 보고 떨어진 줄의 묶음에 넣지 않는다. 지금 묶음과 이름이 같으면 그대로 두고, 아니면 새 묶음을 만든다.
+            // 위·아래에 붙은 같은 이름 줄과는 저장 직전 transferWrites가 한 묶음으로 합친다.
+            let transfer = transfers.find(t => t.series_id === line.transfer_key && t.account === name);
             if (!transfer) { transfer = { id: crypto.randomUUID(), year, month, series_id: crypto.randomUUID(), account: name, amount: 0 }; newTransfers.push(transfer); }
             patch.transfer_key = transfer.series_id; break;
           }
@@ -230,7 +232,7 @@ export class LedgerCore {
       patches.set(line.id, patch);
     }
     const writes: Statement[] = (await this.planMonthWrites(year, month)).map(s => ({ ...s, history: false }));
-    writes.push(...this.insert(s.paymentMethods, newMethods), ...this.insert(s.transfers, newTransfers));
+    writes.push(...this.insert(s.paymentMethods, newMethods));
     const updated = rows.map(line => {
       const patch = patches.get(line.id);
       if (!patch) return line;
@@ -253,7 +255,9 @@ export class LedgerCore {
       transferValues.set(line.transfer_key, amount);
     }
     for (const [key, amount] of transferValues) {
-      const transfer = [...transfers, ...newTransfers].find(t => t.series_id === key)!;
+      const added = newTransfers.find(t => t.series_id === key);
+      if (added) { added.amount = amount; continue; }
+      const transfer = transfers.find(t => t.series_id === key)!;
       writes.push(...guardStatement('EXISTS(SELECT 1 FROM transfers WHERE id=? AND amount=?)', [transfer.id, transfer.amount]));
       writes.push(toStatement(this.db.update(s.transfers).set({ amount }).where(eq(s.transfers.id, transfer.id))));
     }
@@ -269,7 +273,7 @@ export class LedgerCore {
         FROM (SELECT COALESCE(SUM(amount),0) AS total,COUNT(*) AS n FROM entries WHERE month_line_id=${id})
         WHERE ${amount} - total <> 0 OR n=0`));
     }
-    writes.push(...this.reorder(updated, [], changes.filter(c => c.col === 5).map(c => c.id)), ...this.dropUnused([...transfers, ...newTransfers], updated), ...extra);
+    writes.push(...this.transferWrites(year, month, updated, transfers, newTransfers), ...this.pruneMerges(year, month), ...extra);
     await this.store.batch(writes);
   }
 
@@ -379,25 +383,21 @@ export class LedgerCore {
     const rows = await this.monthRows(year, month);
     const id = crypto.randomUUID(); const series_id = crypto.randomUUID();
     let created: s.Transfer | undefined;
-    if (transferAccount !== undefined) ({ key: valid.transfer_key, created } = await this.transferKey(year, month, transferAccount, statements));
+    if (transferAccount !== undefined) ({ key: valid.transfer_key, created } = await this.transferKey(year, month, transferAccount));
     const line: s.MonthLine = { ...valid, id, year, month, series_id, sort: Math.max(-1, ...rows.map(l => l.sort)) + 1 };
     statements.push(...this.insert(s.monthLines, [line]));
     if (amount !== undefined) statements.push(...this.insert(s.entries, [{ id: crypto.randomUUID(), month_line_id: id, amount, source: 'quick', raw_text: valid.name, created_by: await this.memberId(), created_at: new Date().toISOString() }]));
-    statements.push(...this.reorder(rows, [line], [id]));
+    statements.push(...this.transferWrites(year, month, [...rows, line], await this.monthTransfers(year, month), created ? [created] : []), ...this.pruneMerges(year, month));
     if (future && !valid.one_off) {
       const own = valid.transfer_key ? created ?? (await this.monthTransfers(year, month)).find(t => t.series_id === valid.transfer_key) : undefined;
       const later = (await this.db.select().from(s.ledgerMonths)).filter(m => monthIndex(m.year, m.month) > monthIndex(year, month));
       for (const m of later) {
         const monthRows = await this.monthRows(m.year, m.month);
-        // 그 달에 같은 이름의 이체 계좌가 있으면 그 묶음에, 없으면 이번 달 묶음을 그대로 옮겨 넣는다.
-        let transfer_key = valid.transfer_key;
-        if (own) {
-          const same = (await this.monthTransfers(m.year, m.month)).find(t => t.account === own.account);
-          if (same) transfer_key = same.series_id;
-          else statements.push(...this.insert(s.transfers, [{ ...own, id: crypto.randomUUID(), year: m.year, month: m.month }]));
-        }
-        const copy: s.MonthLine = { ...valid, transfer_key, id: crypto.randomUUID(), year: m.year, month: m.month, series_id, sort: Math.max(-1, ...monthRows.map(l => l.sort)) + 1 };
-        statements.push(...this.insert(s.monthLines, [copy]), ...this.reorder(monthRows, [copy], [copy.id]));
+        // 그 달에 같은 묶음(series)이 없으면 이번 달 묶음을 옮겨 넣는다. 붙은 같은 이름 줄과는 transferWrites가 합친다.
+        const existing = await this.monthTransfers(m.year, m.month);
+        const added = own && !existing.some(t => t.series_id === own.series_id) ? [{ ...own, id: crypto.randomUUID(), year: m.year, month: m.month }] : [];
+        const copy: s.MonthLine = { ...valid, id: crypto.randomUUID(), year: m.year, month: m.month, series_id, sort: Math.max(-1, ...monthRows.map(l => l.sort)) + 1 };
+        statements.push(...this.insert(s.monthLines, [copy]), ...this.transferWrites(m.year, m.month, [...monthRows, copy], existing, added), ...this.pruneMerges(m.year, m.month));
       }
     }
     await this.store.batch(statements);
@@ -416,22 +416,18 @@ export class LedgerCore {
     const statements: Statement[] = [];
     let created: s.Transfer | undefined;
     if (transferAccount === undefined) valid.transfer_key = line.transfer_key;
-    else ({ key: valid.transfer_key, created } = await this.transferKey(line.year, line.month, transferAccount, statements));
+    else ({ key: valid.transfer_key, created } = await this.transferKey(line.year, line.month, transferAccount, line.transfer_key));
     statements.push(toStatement(this.db.update(s.monthLines).set(valid).where(where)));
     const own = valid.transfer_key ? created ?? (await this.monthTransfers(line.year, line.month)).find(t => t.series_id === valid.transfer_key) : undefined;
-    // 바뀐 줄이 있는 달마다: 이후 달에도 같은 묶음이 있게 하고, 줄 순서를 맞추고, 줄이 없는 묶음을 지운다.
+    // 바뀐 줄이 있는 달마다: 이후 달에도 같은 묶음이 있게 하고, 이체 묶음을 규칙에 맞추고, 줄이 없는 묶음을 지운다.
     const affectedIds = new Set(affected.map(r => r.id));
     const months = [...new Map(affected.map(r => [`${r.year}-${r.month}`, { year: r.year, month: r.month }])).values()];
     for (const m of months) {
       const rows = (await this.monthRows(m.year, m.month)).map(r => affectedIds.has(r.id) ? { ...r, ...valid } : r);
-      const transfers = await this.monthTransfers(m.year, m.month);
-      if (created && sameMonth(m, line)) transfers.push(created);
-      if (own && !sameMonth(m, line) && !transfers.some(t => t.series_id === own.series_id)) {
-        const copy = { ...own, id: crypto.randomUUID(), year: m.year, month: m.month };
-        statements.push(...this.insert(s.transfers, [copy], true)); transfers.push(copy);
-      }
-      statements.push(...this.reorder(rows, [], affected.filter(r => sameMonth(r, m)).map(r => r.id)));
-      statements.push(...this.dropUnused(transfers, rows));
+      const existing = await this.monthTransfers(m.year, m.month);
+      const added: s.Transfer[] = created && sameMonth(m, line) ? [created] : [];
+      if (own && !sameMonth(m, line) && !existing.some(t => t.series_id === own.series_id)) added.push({ ...own, id: crypto.randomUUID(), year: m.year, month: m.month });
+      statements.push(...this.transferWrites(m.year, m.month, rows, existing, added), ...this.pruneMerges(m.year, m.month));
     }
     await this.store.batch(statements);
   }
@@ -454,7 +450,9 @@ export class LedgerCore {
     const section = rows.filter(r => r.section === line.section && r.id !== line.id);
     section.splice(Math.max(0, Math.min(index, section.length)), 0, rows.find(r => r.id === line.id)!);
     let next = 0;
-    await this.store.batch([...this.resequence(rows.map(r => r.section === line.section ? section[next++] : r)), ...this.pruneMerges(line.year, line.month)]);
+    const order = rows.map(r => r.section === line.section ? section[next++] : r);
+    // 옮긴 자리에서 위·아래 줄과 이체 계좌 이름이 같으면 한 묶음이 되고, 떨어져 나온 줄은 따로 묶음이 된다.
+    await this.store.batch([...this.resequence(order), ...this.transferWrites(line.year, line.month, order.map((r, sort) => ({ ...r, sort })), await this.monthTransfers(line.year, line.month)), ...this.pruneMerges(line.year, line.month)]);
   }
   async deleteLine(id: string, future = false) {
     await this.init();
@@ -466,7 +464,7 @@ export class LedgerCore {
     // 입력 기록·예산 조정은 FK의 ON DELETE CASCADE로 같이 지워진다.
     const statements: Statement[] = [toStatement(this.db.delete(s.monthLines).where(where))];
     const months = [...new Map(affected.map(r => [`${r.year}-${r.month}`, { year: r.year, month: r.month }])).values()];
-    for (const m of months) statements.push(...this.dropUnused(await this.monthTransfers(m.year, m.month), (await this.monthRows(m.year, m.month)).filter(r => !removed.has(r.id))), ...this.pruneMerges(m.year, m.month));
+    for (const m of months) statements.push(...this.transferWrites(m.year, m.month, (await this.monthRows(m.year, m.month)).filter(r => !removed.has(r.id)), await this.monthTransfers(m.year, m.month)), ...this.pruneMerges(m.year, m.month));
     const series = await this.db.select({ id: s.monthLines.id }).from(s.monthLines).where(eq(s.monthLines.series_id, line.series_id));
     if (series.every(r => removed.has(r.id))) statements.push(toStatement(this.db.delete(s.matchRules).where(eq(s.matchRules.series_id, line.series_id))));
     await this.store.batch(statements);
@@ -632,12 +630,13 @@ export class LedgerCore {
     const targets = future
       ? await this.db.select().from(s.transfers).where(and(eq(s.transfers.series_id, transfer.series_id), sql`${s.transfers.year} * 12 + ${s.transfers.month} >= ${transfer.year * 12 + transfer.month}`))
       : [transfer];
-    if (account !== undefined) {
-      for (const t of targets) {
-        if (account !== t.account && (await this.monthTransfers(t.year, t.month)).some(o => o.account === account)) throw new InputError(`${t.month}월에 같은 이름의 이체 계좌가 있습니다.`);
-      }
+    const statements = targets.map(t => toStatement(this.db.update(s.transfers).set({ ...(account !== undefined && { account }), ...(changes.amount !== undefined && { amount: changes.amount }) }).where(eq(s.transfers.id, t.id))));
+    // 이름을 바꾸면 위·아래에 붙은 같은 이름 묶음과 합쳐질 수 있다. 떨어진 같은 이름 묶음과는 따로 남는다.
+    if (account !== undefined) for (const t of targets) {
+      const renamed = (await this.monthTransfers(t.year, t.month)).map(o => o.id === t.id ? { ...o, account } : o);
+      statements.push(...this.transferWrites(t.year, t.month, await this.monthRows(t.year, t.month), renamed));
     }
-    await this.store.batch(targets.map(t => toStatement(this.db.update(s.transfers).set({ ...(account !== undefined && { account }), ...(changes.amount !== undefined && { amount: changes.amount }) }).where(eq(s.transfers.id, t.id)))));
+    await this.store.batch(statements);
   }
   private async resolveTransfer(id: string) {
     let [transfer] = await this.db.select().from(s.transfers).where(eq(s.transfers.id, id));
@@ -647,25 +646,28 @@ export class LedgerCore {
     if (!transfer) throw new InputError('이체 계좌를 찾을 수 없습니다.');
     return transfer;
   }
-  // 계좌 이름으로 그 달의 묶음을 찾고, 없으면 새로 만드는 쓰기를 statements에 더한다. 빈 이름은 묶음 없음.
-  private async transferKey(year: number, month: number, account: string | null, statements: Statement[]): Promise<{ key: string | null; created?: s.Transfer }> {
+  // 줄에 적은 계좌 이름의 묶음: 지금 묶음과 이름이 같으면 그대로, 아니면 새 묶음(아직 쓰지 않음, transferWrites가 넣는다).
+  // 빈 이름은 묶음 없음. 위·아래에 붙은 같은 이름 줄과는 transferWrites가 한 묶음으로 합친다.
+  private async transferKey(year: number, month: number, account: string | null, current: string | null = null): Promise<{ key: string | null; created?: s.Transfer }> {
     const name = account?.trim();
     if (!name) return { key: null };
     nameValue.parse(name);
-    const found = (await this.monthTransfers(year, month)).find(t => t.account === name);
-    if (found) return { key: found.series_id };
+    const own = current ? (await this.monthTransfers(year, month)).find(t => t.series_id === current) : undefined;
+    if (own?.account === name) return { key: own.series_id };
     const created: s.Transfer = { id: crypto.randomUUID(), year, month, series_id: crypto.randomUUID(), account: name, amount: 0 };
-    statements.push(...this.insert(s.transfers, [created]));
     return { key: created.series_id, created };
   }
-  // rows(그 달의 현재 줄, sort 순) + added(새 줄)에서 placeIds 줄을 차례로 묶음 아래로 옮기고, 바뀐 순서를 쓰기로 돌려준다.
-  private reorder(rows: s.MonthLine[], added: s.MonthLine[], placeIds: string[]): Statement[] {
-    const start = [...rows, ...added];
-    let order = start;
-    for (const id of placeIds) order = placeWithTransfer(order, id);
-    const moved = order.every((r, i) => r === start[i]) ? [] : this.resequence(order);
-    const scope = order[0];
-    return [...moved, ...(scope ? this.pruneMerges(scope.year, scope.month) : [])];
+  // rows: 이번 쓰기 뒤의 그 달 줄 전부, existing: DB에 있는 그 달 묶음, added: 이번에 새로 만들 묶음.
+  // 이체 묶음 규칙(settleTransfers)에 맞춘 뒤 필요한 쓰기만 돌려준다: 쓰이는 새 묶음 넣기 → 줄 연결 바꾸기 → 줄이 없는 기존 묶음 지우기.
+  private transferWrites(year: number, month: number, rows: s.MonthLine[], existing: s.Transfer[], added: s.Transfer[] = []): Statement[] {
+    const { relink, created } = settleTransfers(year, month, rows, [...existing, ...added]);
+    const moved = new Map(relink.map(r => [r.id, r.key]));
+    const used = new Set(rows.map(r => moved.get(r.id) ?? r.transfer_key));
+    return [
+      ...this.insert(s.transfers, [...added, ...created].filter(t => used.has(t.series_id)), true),
+      ...relink.map(r => toStatement(this.db.update(s.monthLines).set({ transfer_key: r.key }).where(eq(s.monthLines.id, r.id)))),
+      ...existing.filter(t => !used.has(t.series_id)).map(t => toStatement(this.db.delete(s.transfers).where(eq(s.transfers.id, t.id)))),
+    ];
   }
   private pruneMerges(year: number, month: number): Statement[] {
     return [{ sql: `DELETE FROM cell_merges AS m WHERE m.year=? AND m.month=? AND (
@@ -679,10 +681,7 @@ export class LedgerCore {
   private resequence(order: { id: string; sort: number }[]): Statement[] {
     return order.flatMap((row, index) => row.sort === index ? [] : [toStatement(this.db.update(s.monthLines).set({ sort: index }).where(eq(s.monthLines.id, row.id)))]);
   }
-  private dropUnused(transfers: s.Transfer[], rows: { transfer_key: string | null }[]): Statement[] {
-    const used = new Set(rows.map(l => l.transfer_key));
-    return transfers.filter(t => !used.has(t.series_id)).map(t => toStatement(this.db.delete(s.transfers).where(eq(s.transfers.id, t.id))));
-  }
+
 
   // ── 설정: 카테고리·결제수단·계좌 ───────────────────────────
   async saveCategory(name: string, id?: string) {
