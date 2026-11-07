@@ -196,3 +196,17 @@ test('이체 칸을 병합하면 아랫줄을 맨 윗줄 계좌로 묶어 예산
   const plain = (await l.month(2026, 1)).filter(r => r.section === 'fixed').slice(0, 2);
   await expect(l.mergeCells(2026, 1, plain.map(r => r.id), 5, 5)).rejects.toThrow('맨 윗줄에 이체 계좌를 먼저 적으세요.');
 });
+
+test('구역 사이에 sort가 끼어 있어도 화면에서 붙은 줄은 병합되고 병합 기록도 남는다', async () => {
+  const { l } = await setup();
+  const fixed = (await l.month(2026, 1)).filter(r => r.section === 'fixed');
+  const last = fixed.at(-1)!;
+  // 고정생활비 맨 끝 줄을 다른 구역 줄들보다 큰 sort로 보내 실제 운영 데이터(월세 16 · 대출이자 27)와 같게 만든다.
+  await l.store.batch([{ sql: 'UPDATE month_lines SET sort=999 WHERE id=?', params: [last.id] }]);
+  const ids = [fixed.at(-2)!.id, last.id];
+  await l.mergeCells(2026, 1, ids, 2, 2);
+  expect((await l.snapshot(2026, 1)).cellMerges.filter(m => m.month === 1)).toHaveLength(1);
+  // 다른 편집 뒤 정리(pruneMerges)에서도 지워지지 않는다.
+  await l.editCells(2026, 1, [{ id: fixed[0].id, col: 3, value: '1000' }]);
+  expect((await l.snapshot(2026, 1)).cellMerges.filter(m => m.month === 1)).toHaveLength(1);
+});

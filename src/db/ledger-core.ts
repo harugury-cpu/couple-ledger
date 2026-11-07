@@ -21,7 +21,7 @@ import { notificationSettingsSchema, type NotificationSettings } from '../lib/no
 import { parseMoney } from '../lib/validation';
 import { parsePayment } from '../lib/payment';
 import { guardStatement } from './edit-history';
-import { sheetColumns, type SheetChange } from '../lib/sheet-grid';
+import { sheetColumns, sheetOrder, type SheetChange } from '../lib/sheet-grid';
 
 export type Today = () => { year: number; month: number };
 // 한국 시간 기준 이번 달
@@ -279,7 +279,8 @@ export class LedgerCore {
 
   async mergeCells(year: number, month: number, ids: string[], first: number, last: number) {
     if (first < 0 || last > 7 || first > last || ids.length * (last - first + 1) < 2 || new Set(ids).size !== ids.length) throw new InputError('이어진 두 칸 이상을 사각형으로 선택하세요.');
-    const rows = await this.month(year, month);
+    // DB의 sort는 구역을 섞어 매긴다. '이어진 칸'은 화면 순서(구역별)로 따져야 고정생활비 끝줄처럼 sort가 띄엄띄엄인 줄도 병합된다.
+    const rows = sheetOrder(await this.month(year, month));
     const at = ids.map(id => rows.findIndex(l => l.id === id));
     if (at.some((n, i) => n < 0 || (i > 0 && n !== at[i - 1] + 1)) || at.some(n => rows[n].section !== rows[at[0]].section)) throw new InputError('같은 구역에서 이어진 칸을 선택하세요.');
     const existing = await this.db.select().from(s.cellMerges).where(and(eq(s.cellMerges.year, year), eq(s.cellMerges.month, month)));
@@ -675,7 +676,7 @@ export class LedgerCore {
         WHERE l.id IS NULL OR l.year<>m.year OR l.month<>m.month OR l.section<>m.section)
       OR EXISTS(SELECT 1 FROM json_each(m.line_ids) a JOIN json_each(m.line_ids) b ON CAST(b.key AS INTEGER)=CAST(a.key AS INTEGER)+1
         JOIN month_lines la ON la.id=a.value JOIN month_lines lb ON lb.id=b.value
-        WHERE la.sort>=lb.sort OR EXISTS(SELECT 1 FROM month_lines other WHERE other.year=m.year AND other.month=m.month AND other.sort>la.sort AND other.sort<lb.sort))
+        WHERE la.sort>=lb.sort OR EXISTS(SELECT 1 FROM month_lines other WHERE other.year=m.year AND other.month=m.month AND other.section=m.section AND other.sort>la.sort AND other.sort<lb.sort))
     )`, params: [year, month] }];
   }
   private resequence(order: { id: string; sort: number }[]): Statement[] {
