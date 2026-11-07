@@ -40,7 +40,7 @@ export function AssetsView({ data, busy, perform, onError, history }: Props) {
   const today = seoulToday();
   const phone = usePhone(); const touch = useTouch();
   const { rows, locked, visible, isDirect, totals, history: chart } = assetRows(data.accounts, computeLines(data.lines, data.entries, data.adjustments), data.balances, data.assetCarry, data.year,
-    data.deposits, data.lastMonth || Infinity);
+    data.deposits, data.lastMonth || Infinity, today.year * 12 + today.month);
   const editing = edit && edit !== 'new' ? data.accounts.find(a => a.id === edit) : undefined;
   const thisYear = data.year === today.year;
   // 이월 원금 칸을 고치면 그 값이 되도록 시작 원금을 맞춘다(지난해까지 쌓인 금액은 그대로).
@@ -140,13 +140,13 @@ export function AssetsView({ data, busy, perform, onError, history }: Props) {
             onSave={amount => { void saveOpening(r, amount ?? 0); }} /></td>,
           ...r.months.map(m => isDirect(r.account)
             // 직접 입력 계좌: 달 칸에 바로 적는다. 앞 달에서 이어 쓴 값은 흐리게 보인다.
-            ? <td className={`numeric${m.carried ? ' carried' : ''}`}><MoneyCell value={m.amount} signed label={`${r.account.name} ${m.month}월 입금`} disabled={busy} onError={onError}
+            ? <td className={`numeric${m.carried ? ' carried' : ''}${m.future ? ' future' : ''}`}><MoneyCell value={m.amount} signed label={`${r.account.name} ${m.month}월 입금`} disabled={busy} onError={onError}
                 onSave={amount => { void perform({ type: 'deposit', id: r.account.id, year: data.year, month: m.month, amount }); }} /></td>
             : m.lineId
               // 연결된 저축 줄이 하나인 달: 칸에서 고치면 월별 표 그 줄 금액이 바뀐다(매달 같은 금액 줄이면 뒤 달로 이어진다).
-              ? <td className="numeric"><MoneyCell value={m.amount} signed label={`${r.account.name} ${m.month}월 원금`} disabled={busy} onError={onError}
+              ? <td className={`numeric${m.future ? ' future' : ''}`}><MoneyCell value={m.amount} signed label={`${r.account.name} ${m.month}월 원금`} disabled={busy} onError={onError}
                   onSave={amount => { void perform({ type: 'amount', id: m.lineId!, amount }); }} /></td>
-              : <td className={`numeric${m.amount !== null && m.amount < 0 ? ' minus' : ''}`} title={m.amount === null ? undefined : '저축 줄이 둘 이상이라 월별 표에서 고칩니다'}>{m.amount === null ? '' : won(m.amount)}</td>),
+              : <td className={`numeric${m.future ? ' future' : m.amount !== null && m.amount < 0 ? ' minus' : ''}`} title={m.amount === null ? undefined : '저축 줄이 둘 이상이라 월별 표에서 고칩니다'}>{m.amount === null ? '' : won(m.amount)}</td>),
           <td className="numeric asset-total stick-r r2" style={pin(totalCol)}>{won(r.principal)}</td>,
           <td className="numeric asset-value stick-r r1" style={pin(valueCol)}>{r.account.kind === 'invest'
             ? <><MoneyCell value={r.value} label={`${r.account.name} 평가금액`} disabled={busy || !thisYear} onError={onError}
@@ -159,13 +159,13 @@ export function AssetsView({ data, busy, perform, onError, history }: Props) {
       </tr>)}</tbody>
       <tfoot><tr>
         <th scope="row">합계</th><td className="numeric">{won(rows.reduce((sum, r) => sum + r.opening, 0))}</td>
-        {visible.map((m, i) => { const sum = monthSum(i); return <td key={m} className="numeric">{sum === null ? '' : won(sum)}</td>; })}
+        {visible.map((m, i) => { const sum = monthSum(i); return <td key={m} className={`numeric${rows[0]?.months[i].future ? ' future' : ''}`}>{sum === null ? '' : won(sum)}</td>; })}
         <td className="numeric asset-total stick-r r2" style={pin(totalCol)}>{won(totals.principal)}</td><td className="numeric stick-r r1" style={pin(valueCol)}>{won(totals.value)}</td>
         <td className={`numeric stick-r r0${totals.change < 0 ? ' minus' : ''}`} style={pin(count - 1)}>{signed(totals.change)}</td>
       </tr></tfoot>
     </table></div>
       : <p className="muted empty-chart">토스·ISA·적금처럼 돈을 넣는 계좌를 추가하고 월별 표의 저축 줄을 연결하면, 달마다 넣은 원금과 평가금액·증감이 여기에 보입니다.</p>}
-    {rows.length > 0 && <p className="table-note">단위: 원 · 돈을 뺐으면 그 달 저축 줄에 마이너스로 적습니다. 계좌마다 기록 시작 달부터 원금을 더하고, 시작 원금은 그 전까지 넣은 돈입니다. 저축은 이자를 계산하지 않아 평가금액이 원금과 같습니다. 계좌 이름을 누르면 연결한 저축 줄·시작 달·시작 원금을 고칩니다.</p>}
+    {rows.length > 0 && <p className="table-note">단위: 원 · 회색은 아직 오지 않은 달로 총 원금에 넣지 않습니다. 돈을 뺐으면 그 달 저축 줄에 마이너스로 적습니다. 계좌마다 기록 시작 달부터 원금을 더하고, 시작 원금은 그 전까지 넣은 돈입니다. 저축은 이자를 계산하지 않아 평가금액이 원금과 같습니다. 계좌 이름을 누르면 연결한 저축 줄·시작 달·시작 원금을 고칩니다.</p>}
 
     <h3 className="asset-subhead">묶인 돈</h3>
     {locked.length ? <div className="table-scroll"><table className="balance-table locked-table">

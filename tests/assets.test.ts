@@ -133,3 +133,22 @@ it('연결한 저축 줄이 하나인 달은 그 줄을 칸에서 고칠 수 있
   expect(rows.find(r => r.account.name === '우리')!.months[0].lineId).toBe((await line(2026, 11, 0)).id);
   expect(rows.find(r => r.account.name === '토스')!.months.every(m => m.lineId === null)).toBe(true);
 });
+
+it('아직 오지 않은 달은 회색으로 보이고 총 원금·그래프에 넣지 않는다', async () => {
+  const { l, series } = await setup();
+  await action(l, { type: 'account-save', name: '우리', kind: 'ready', target: null, principal: 1_000, start_month: '2026-11', series: [series[0]] });
+  await action(l, { type: 'account-save', name: '용돈 적립', kind: 'ready', target: null, principal: 0, start_month: '2026-11', series: [] });
+  const s = await l.snapshot(2026, 11);
+  const nov = s.lines.find(r => r.month === 11 && r.series_id === series[0])!; const dec = s.lines.find(r => r.month === 12 && r.series_id === series[0])!;
+  await l.setAmount(nov.id, 100); await l.setAmount(dec.id, 200);
+  await action(l, { type: 'deposit', id: s.accounts.find(a => a.name === '용돈 적립')!.id, year: 2026, month: 11, amount: 50 });
+  const t = await l.snapshot(2026, 11);
+  const result = assetRows(t.accounts, computeLines(t.lines, t.entries, t.adjustments), t.balances, t.assetCarry, 2026, t.deposits, t.lastMonth, 2026 * 12 + 11);
+  const ours = result.rows.find(r => r.account.name === '우리')!;
+  expect(ours.months.map(m => [m.amount, m.future])).toEqual([[100, false], [200, true]]);
+  expect(ours.principal).toBe(1_100);
+  const extra = result.rows.find(r => r.account.name === '용돈 적립')!;
+  expect(extra.months.map(m => [m.amount, m.future])).toEqual([[50, false], [50, true]]);
+  expect(extra.principal).toBe(50);
+  expect(result.history.map(h => h.month)).toEqual([11]);
+});

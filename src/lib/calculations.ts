@@ -90,12 +90,12 @@ export function savingsRows(year: number, lines: ComputedLine[], uses: { year: n
 
 // 자산 탭: 저축·투자 계좌는 행, 달은 열. 원금은 계좌에 연결한 월별 표 저축 줄의 금액(인출은 마이너스로 적는다).
 // 계좌마다 기록 시작 달(start_month)부터 센다: 시작 원금은 그 달 전까지 넣은 원금이고, 그 전 달 칸은 비운다.
-// 표에는 그 해에 시작한 계좌 중 가장 이른 시작 달부터 12월까지 보인다. 금액이 적힌 달은 앞으로 올 달이어도 원금에 넣는다.
+// 표에는 그 해에 시작한 계좌 중 가장 이른 시작 달부터 12월까지 보인다. 아직 오지 않은 달(through 뒤)은 회색으로 보이고 원금·합계에 넣지 않는다.
 // 평가금액: 투자는 그 해 말까지 적은 마지막 값(없으면 원금으로 센다), 저축은 이자를 계산하지 않으므로 원금과 같다.
 // 저축 줄을 연결하지 않은 계좌(직접 입력)는 달 칸에 적은 입금(deposits)을 쓴다. 빈 달은 앞 달에 적은 값을 이어 쓰고(carried),
 // 이어 쓰는 범위는 가계부에 만들어진 마지막 달(lastMonth = year*12+month)까지다.
 export function assetRows(accounts: Account[], lines: ComputedLine[], balances: AccountBalance[], carry: Record<string, number>, year: number,
-  deposits: AccountDeposit[] = [], lastMonth = Infinity) {
+  deposits: AccountDeposit[] = [], lastMonth = Infinity, through = Infinity) {
   const startOf = (a: Account) => a.start_month ? Number(a.start_month.slice(0, 4)) * 12 + Number(a.start_month.slice(5, 7)) : -Infinity;
   const isDirect = (a: Account) => (JSON.parse(a.series) as string[]).length === 0;
   const depositAt = (a: Account) => {
@@ -113,18 +113,19 @@ export function assetRows(accounts: Account[], lines: ComputedLine[], balances: 
     const series = new Set(JSON.parse(account.series) as string[]);
     const start = startOf(account); const direct = isDirect(account); const deposit = depositAt(account);
     const months = visible.map(month => {
-      if (direct) { const d = deposit(year * 12 + month); return { month, amount: d?.amount ?? null, carried: !!d?.carried, lineId: null }; }
+      const future = year * 12 + month > through;
+      if (direct) { const d = deposit(year * 12 + month); return { month, future, amount: d?.amount ?? null, carried: !!d?.carried, lineId: null }; }
       const own = lines.filter(l => l.year === year && l.month === month && series.has(l.series_id));
       const counted = year * 12 + month >= start && own.some(l => l.hasEntry);
       // lineId: 그 달 연결된 저축 줄이 하나면 칸에서 바로 고칠 수 있다(월별 표 그 줄 금액). 둘 이상이면 월별 표에서 고친다.
-      return { month, amount: counted ? safeSum(own.map(l => l.actual)) : null, carried: false, lineId: year * 12 + month >= start && own.length === 1 ? own[0].id : null };
+      return { month, future, amount: counted ? safeSum(own.map(l => l.actual)) : null, carried: false, lineId: year * 12 + month >= start && own.length === 1 ? own[0].id : null };
     });
     // 직접 입력 계좌의 지난해까지 입금(이어 쓴 달 포함)은 여기서 이월 원금에 더한다.
     const firstDeposit = Math.min(...deposits.filter(d => d.account_id === account.id).map(d => d.year * 12 + d.month).filter(at => at >= start));
     const before: number[] = [];
     if (direct) for (let at = firstDeposit; at <= year * 12 && Number.isFinite(at); at++) before.push(deposit(at)?.amount ?? 0);
     const opening = safeSum([account.principal, carry[account.id] ?? 0, ...before]);
-    const principal = safeSum([opening, ...months.map(m => m.amount ?? 0)]);
+    const principal = safeSum([opening, ...months.filter(m => !m.future).map(m => m.amount ?? 0)]);
     const latest = account.kind === 'invest'
       ? balances.filter(b => b.account_id === account.id && b.year * 12 + b.month <= year * 12 + 12).sort((a, b) => (b.year * 12 + b.month) - (a.year * 12 + a.month))[0]
       : undefined;
@@ -137,8 +138,8 @@ export function assetRows(accounts: Account[], lines: ComputedLine[], balances: 
   const principal = safeSum(rows.map(r => r.principal));
   const value = safeSum(rows.map(r => r.value ?? r.principal));
   const lockedTotal = safeSum(locked.map(a => a.principal));
-  // 그래프: 보이는 달마다 쌓인 원금 합계(금액이 적힌 마지막 달까지)
-  const last = Math.max(0, ...rows.flatMap(r => r.months.filter(m => m.amount !== null).map(m => m.month)));
+  // 그래프: 보이는 달마다 쌓인 원금 합계(이번 달까지, 금액이 적힌 마지막 달까지)
+  const last = Math.max(0, ...rows.flatMap(r => r.months.filter(m => m.amount !== null && !m.future).map(m => m.month)));
   const history = visible.filter(m => m <= last)
     .map(month => ({ month, assets: safeSum(rows.flatMap(r => [r.opening, ...r.months.filter(m => m.month <= month).map(m => m.amount ?? 0)])) }));
   return { rows, locked, visible, isDirect, totals: { principal, value, locked: lockedTotal, total: safeSum([value, lockedTotal]), change: safeSum([value, -principal]) }, history };
