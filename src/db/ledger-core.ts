@@ -811,12 +811,21 @@ export class LedgerCore {
     // 잔액 기록은 계좌와 함께 지워진다(ON DELETE CASCADE).
     await this.store.batch([toStatement(this.db.delete(s.accounts).where(eq(s.accounts.id, id)))]);
   }
+  // 계좌 해지: 해지한 날·받은 금액·어디로 보냈는지 메모를 남긴다. closedOn이 null이면 해지를 취소한다.
+  async closeAccount(id: string, closedOn: string | null, amount: number | null, note: string | null) {
+    if (closedOn) isoDate.parse(closedOn); if (amount !== null) signedMoney.parse(amount); await this.init();
+    if (!(await this.db.select({ id: s.accounts.id }).from(s.accounts).where(eq(s.accounts.id, id))).length) throw new InputError('계좌를 찾을 수 없습니다.');
+    if (closedOn && amount === null) throw new InputError('해지하고 받은 금액을 적으세요.');
+    const fields = closedOn ? { closed_on: closedOn, closed_amount: amount, closed_note: note?.trim() || null } : { closed_on: null, closed_amount: null, closed_note: null };
+    await this.store.batch([toStatement(this.db.update(s.accounts).set(fields).where(eq(s.accounts.id, id)))]);
+  }
   // 직접 입력 계좌의 그 달 입금. 비우면 그 달 기록을 지우고 앞 달 값이 이어진다.
   async setDeposit(id: string, year: number, month: number, amount: number | null) {
     yearValue.parse(year); monthValue.parse(month); if (amount !== null) signedMoney.parse(amount); await this.init();
     const [account] = await this.db.select().from(s.accounts).where(eq(s.accounts.id, id));
     if (!account) throw new InputError('계좌를 찾을 수 없습니다.');
     if (account.kind === 'reserved' || (JSON.parse(account.series) as string[]).length) throw new InputError('월별 표 저축 줄을 연결한 계좌는 월별 표에서 금액을 고칩니다.');
+    if (account.closed_on && year * 12 + month > Number(account.closed_on.slice(0, 4)) * 12 + Number(account.closed_on.slice(5, 7))) throw new InputError(`${account.name}은(는) 해지한 계좌라 해지한 달 뒤에는 적을 수 없습니다.`);
     const at = and(eq(s.accountDeposits.account_id, id), eq(s.accountDeposits.year, year), eq(s.accountDeposits.month, month));
     if (amount === null) { await this.store.batch([toStatement(this.db.delete(s.accountDeposits).where(at))]); return; }
     await this.store.batch([toStatement(this.db.insert(s.accountDeposits).values({ id: crypto.randomUUID(), account_id: id, year, month, amount })

@@ -27,7 +27,8 @@ export const archiveSchema = z.strictObject({
     cell_merges: z._default(rows(z.strictObject({ id, ...ym, section: z.enum(['fixed', 'variable', 'saving', 'income']), line_ids: z.string().check(z.maxLength(100000)), first_col: z.number().check(z.int(), z.minimum(0), z.maximum(7)), last_col: z.number().check(z.int(), z.minimum(0), z.maximum(7)) })), []),
     // 잔액 화면 이전에 내보낸 파일에는 없으므로 비어 있는 것으로 읽는다.
     accounts: z._default(rows(z.strictObject({ id, name: nameValue, kind: accountKind, target: z.nullable(money), sort,
-      principal: z._default(signedMoney, 0), due_on: z._default(z.nullable(isoDate), null), series: z._default(z.string().check(z.maxLength(20000)), '[]'), start_month: z._default(z.nullable(yearMonth), null) })), []),
+      principal: z._default(signedMoney, 0), due_on: z._default(z.nullable(isoDate), null), series: z._default(z.string().check(z.maxLength(20000)), '[]'), start_month: z._default(z.nullable(yearMonth), null),
+      closed_on: z._default(z.nullable(isoDate), null), closed_amount: z._default(z.nullable(signedMoney), null), closed_note: z._default(z.nullable(z.string().check(z.maxLength(500))), null) })), []),
     account_balances: z._default(rows(z.strictObject({ id, account_id: id, ...ym, amount: signedMoney, checked_on: z._default(z.nullable(isoDate), null) })), []),
     account_deposits: z._default(rows(z.strictObject({ id, account_id: id, ...ym, amount: signedMoney })), []),
     notification_events: z._default(rows(z.strictObject({

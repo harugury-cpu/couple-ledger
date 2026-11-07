@@ -106,28 +106,32 @@ export function assetRows(accounts: Account[], lines: ComputedLine[], balances: 
       return before ? { amount: before.amount, carried: before.at !== at } : null;
     };
   };
-  const tracked = accounts.filter(a => a.kind !== 'reserved' && startOf(a) <= year * 12 + 12);
+  // 해지한 계좌: 해지한 달 뒤 칸은 막고, 해지한 해까지만 표에 남는다(맨 아래 회색). 합계에는 넣지 않는다.
+  const closeOf = (a: Account) => a.closed_on ? Number(a.closed_on.slice(0, 4)) * 12 + Number(a.closed_on.slice(5, 7)) : Infinity;
+  const tracked = accounts.filter(a => a.kind !== 'reserved' && startOf(a) <= year * 12 + 12 && closeOf(a) >= year * 12 + 1);
   const first = Math.min(12, ...tracked.map(a => Math.max(1, startOf(a) - year * 12)));
   const visible = Array.from({ length: 13 - first }, (_, i) => first + i);
   // 저축·투자 계좌도 꺼낼 수 있는 날(due_on)이 이번 달 뒤면 묶인 계좌: 지금 쓸 수 있는 돈에서 빼고 묶인 돈에 넣는다.
   const lockedUntil = (a: Account) => a.due_on && Number(a.due_on.slice(0, 4)) * 12 + Number(a.due_on.slice(5, 7)) > through ? a.due_on : null;
   const rows = tracked.map(account => {
     const series = new Set(JSON.parse(account.series) as string[]);
-    const start = startOf(account); const direct = isDirect(account); const deposit = depositAt(account);
+    const start = startOf(account); const close = closeOf(account); const direct = isDirect(account); const deposit = depositAt(account);
     const months = visible.map(month => {
       const future = year * 12 + month > through;
       // before: 기록 시작 달 전 달. 적어도 원금에 넣지 않으므로 칸을 막는다.
       const before = year * 12 + month < start;
-      if (direct) { const d = before ? null : deposit(year * 12 + month); return { month, future, before, amount: d?.amount ?? null, carried: !!d?.carried, lineId: null }; }
+      // closed: 해지한 달 뒤 달. 적을 수 없다.
+      const closed = year * 12 + month > close;
+      if (direct) { const d = before || closed ? null : deposit(year * 12 + month); return { month, future, before, closed, amount: d?.amount ?? null, carried: !!d?.carried, lineId: null }; }
       const own = lines.filter(l => l.year === year && l.month === month && series.has(l.series_id));
-      const counted = year * 12 + month >= start && own.some(l => l.hasEntry);
+      const counted = year * 12 + month >= start && !closed && own.some(l => l.hasEntry);
       // lineId: 그 달 연결된 저축 줄이 하나면 칸에서 바로 고칠 수 있다(월별 표 그 줄 금액). 둘 이상이면 월별 표에서 고친다.
-      return { month, future, before, amount: counted ? safeSum(own.map(l => l.actual)) : null, carried: false, lineId: year * 12 + month >= start && own.length === 1 ? own[0].id : null };
+      return { month, future, before, closed, amount: counted ? safeSum(own.map(l => l.actual)) : null, carried: false, lineId: year * 12 + month >= start && !closed && own.length === 1 ? own[0].id : null };
     });
     // 직접 입력 계좌의 지난해까지 입금(이어 쓴 달 포함)은 여기서 이월 원금에 더한다.
     const firstDeposit = Math.min(...deposits.filter(d => d.account_id === account.id).map(d => d.year * 12 + d.month).filter(at => at >= start));
     const before: number[] = [];
-    if (direct) for (let at = firstDeposit; at <= year * 12 && Number.isFinite(at); at++) before.push(deposit(at)?.amount ?? 0);
+    if (direct) for (let at = firstDeposit; at <= Math.min(year * 12, close) && Number.isFinite(at); at++) before.push(deposit(at)?.amount ?? 0);
     const opening = safeSum([account.principal, carry[account.id] ?? 0, ...before]);
     const principal = safeSum([opening, ...months.filter(m => !m.future).map(m => m.amount ?? 0)]);
     const latest = account.kind === 'invest'
@@ -136,18 +140,22 @@ export function assetRows(accounts: Account[], lines: ComputedLine[], balances: 
     const value = account.kind === 'invest' ? latest?.amount ?? null : principal;
     return { account, months, opening, principal, value, lockedUntil: lockedUntil(account), checkedOn: latest?.checked_on ?? (latest ? `${latest.year}-${String(latest.month).padStart(2, '0')}` : null),
       // 증감은 평가금액을 적는 투자만 낸다. 저축은 이자를 계산하지 않으므로 비워 둔다.
-      change: account.kind !== 'invest' || value === null ? null : safeSum([value, -principal]) };
-  });
-  const locked = accounts.filter(a => a.kind === 'reserved');
-  const principal = safeSum(rows.map(r => r.principal));
+      change: account.kind !== 'invest' || value === null ? null : safeSum([value, -principal]),
+      // 해지: 받은 금액 − 넣은 원금이 그 계좌로 최종 번 돈이다.
+      closed: account.closed_on ? { on: account.closed_on, amount: account.closed_amount ?? 0, note: account.closed_note, profit: safeSum([account.closed_amount ?? 0, -principal]) } : null };
+  }).sort((a, b) => Number(!!a.closed) - Number(!!b.closed));
+  // 합계는 해지하지 않은 계좌만 센다.
+  const open = rows.filter(r => !r.closed);
+  const locked = accounts.filter(a => a.kind === 'reserved' && closeOf(a) >= year * 12 + 1);
+  const principal = safeSum(open.map(r => r.principal));
   const worth = (r: (typeof rows)[number]) => r.value ?? r.principal;
   // value: 지금 쓸 수 있는 돈(묶이지 않은 계좌 평가금액). locked: 묶인 돈(보증금 + 묶인 계좌 평가금액). change: 모든 계좌의 원금 대비 증감.
-  const value = safeSum(rows.filter(r => !r.lockedUntil).map(worth));
-  const lockedTotal = safeSum([...locked.map(a => a.principal), ...rows.filter(r => r.lockedUntil).map(worth)]);
-  const allValue = safeSum(rows.map(worth));
+  const value = safeSum(open.filter(r => !r.lockedUntil).map(worth));
+  const lockedTotal = safeSum([...locked.filter(a => !a.closed_on).map(a => a.principal), ...open.filter(r => r.lockedUntil).map(worth)]);
+  const allValue = safeSum(open.map(worth));
   // 그래프: 보이는 달마다 쌓인 원금 합계(이번 달까지, 금액이 적힌 마지막 달까지)
-  const last = Math.max(0, ...rows.flatMap(r => r.months.filter(m => m.amount !== null && !m.future).map(m => m.month)));
+  const last = Math.max(0, ...open.flatMap(r => r.months.filter(m => m.amount !== null && !m.future).map(m => m.month)));
   const history = visible.filter(m => m <= last)
-    .map(month => ({ month, assets: safeSum(rows.flatMap(r => [r.opening, ...r.months.filter(m => m.month <= month).map(m => m.amount ?? 0)])) }));
+    .map(month => ({ month, assets: safeSum(open.flatMap(r => [r.opening, ...r.months.filter(m => m.month <= month).map(m => m.amount ?? 0)])) }));
   return { rows, locked, visible, isDirect, totals: { principal, value, allValue, locked: lockedTotal, total: safeSum([value, lockedTotal]), change: safeSum([allValue, -principal]) }, history };
 }

@@ -177,3 +177,25 @@ it('꺼낼 수 있는 날이 남은 계좌(퇴직연금)는 지금 쓸 수 있�
   expect(result.rows.find(r => r.account.name === '퇴직연금')!.lockedUntil).toBe('2050-06-30');
   expect(result.totals).toMatchObject({ value: 100, locked: 5_000 + 1_200, total: 100 + 6_200, allValue: 1_300, change: 1_300 - 1_100 });
 });
+
+it('해지한 계좌는 받은 금액과 최종 손익을 남기고 합계에서 빠지며, 해지 취소로 되돌린다', async () => {
+  const { l } = await setup();
+  await action(l, { type: 'account-save', name: '토스', kind: 'invest', target: null, principal: 5_000, start_month: '2026-10', series: [] });
+  await action(l, { type: 'account-save', name: '우리', kind: 'ready', target: null, principal: 100, start_month: '2026-10', series: [] });
+  const toss = (await l.snapshot(2026, 11)).accounts.find(a => a.name === '토스')!;
+  await action(l, { type: 'deposit', id: toss.id, year: 2026, month: 10, amount: 1_000 });
+  await expect(action(l, { type: 'account-close', id: toss.id, closed_on: '2026-10-20', closed_amount: null, closed_note: null })).rejects.toThrow('받은 금액');
+  const done = await action(l, { type: 'account-close', id: toss.id, closed_on: '2026-10-20', closed_amount: 7_200, closed_note: '생활비 통장' });
+  const s = await l.snapshot(2026, 11);
+  const result = assetRows(s.accounts, computeLines(s.lines, s.entries, s.adjustments), s.balances, s.assetCarry, 2026, s.deposits, s.lastMonth, 2026 * 12 + 11);
+  const row = result.rows.at(-1)!;
+  expect(row.account.name).toBe('토스');
+  expect(row.closed).toEqual({ on: '2026-10-20', amount: 7_200, note: '생활비 통장', profit: 7_200 - 6_000 });
+  expect(row.months.map(m => [m.month, m.amount, m.closed])).toEqual([[10, 1_000, false], [11, null, true], [12, null, true]]);
+  expect(result.totals.principal).toBe(100);
+  await expect(action(l, { type: 'deposit', id: toss.id, year: 2026, month: 11, amount: 1 })).rejects.toThrow('해지');
+  // 다음 해 표에서는 사라진다.
+  expect((await view(l, 2027)).rows.some(r => r.account.name === '토스')).toBe(false);
+  await applyEditHistory(l, done.history_id!, 'undo');
+  expect((await l.snapshot(2026, 11)).accounts.find(a => a.name === '토스')!.closed_on).toBeNull();
+});

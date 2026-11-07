@@ -61,6 +61,7 @@ export function AssetsView({ data, busy, perform, onError, history }: Props) {
     disabled: busy, touch, perform, onError, columns: count, mergeable: false,
     readOnly: (row, col) => {
       const r = rows[row];
+      if (r.closed) return `${r.account.name}은(는) ${shortDate(r.closed.on)}에 해지한 계좌입니다. 계좌 이름을 눌러 해지를 취소할 수 있습니다.`;
       if (col >= 2 && col < totalCol && r.months[col - 2].before) return `${r.account.name}은(는) 기록 시작 달이 ${Number(r.account.start_month!.slice(5, 7))}월이라 그 전 달은 적지 않습니다. 계좌 이름을 눌러 시작 달을 바꾸세요.`;
       if (col >= 2 && col < totalCol) return `${r.account.name}에는 월별 표 저축 줄이 둘 이상 연결돼 있어 ${visible[col - 2]}월 원금은 월별 표에서 고칩니다.`;
       if (col === valueCol) return thisYear ? '저축은 이자를 계산하지 않아 평가금액이 원금과 같습니다. 원금은 이월 원금·달 칸에서 고칩니다.' : '평가금액은 올해 화면에서 적습니다.';
@@ -71,6 +72,7 @@ export function AssetsView({ data, busy, perform, onError, history }: Props) {
       // 값 확인을 먼저 모두 끝낸 뒤(틀린 칸이 있으면 아무것도 쓰지 않는다) 차례로 저장한다.
       const writes = changes.map((c): () => Promise<unknown> => {
         const row = rows.find(r => r.account.id === c.id)!;
+        if (row.closed) throw new Error(`${row.account.name}은(는) 해지한 계좌라 고칠 수 없습니다.`);
         if (c.col === 1) { const amount = parseMoney(c.value) ?? 0; return () => saveOpening(row, amount); }
         if (c.col >= 2 && c.col < totalCol && row.months[c.col - 2].before) throw new Error(`${row.account.name}은(는) 기록 시작 달 전 달에는 적을 수 없습니다.`);
         if (c.col >= 2 && c.col < totalCol && isDirect(row.account)) { const command = { type: 'deposit', id: c.id, year: data.year, month: visible[c.col - 2], amount: parseMoney(c.value, true) }; return () => perform(command); }
@@ -95,7 +97,8 @@ export function AssetsView({ data, busy, perform, onError, history }: Props) {
     const pinned = [...el.querySelectorAll<HTMLElement>('thead .stick-r')].reduce((sum, th) => sum + th.offsetWidth, 0);
     if (col) el.scrollLeft = Math.max(0, col.offsetLeft + col.offsetWidth - (el.clientWidth - pinned));
   }, [data.year, thisYear, today.month, rows.length, V, phone]);
-  const monthSum = (i: number) => rows.some(r => r.months[i].amount !== null) ? rows.reduce((sum, r) => sum + (r.months[i].amount ?? 0), 0) : null;
+  const openRows = rows.filter(r => !r.closed);
+  const monthSum = (i: number) => openRows.some(r => r.months[i].amount !== null) ? openRows.reduce((sum, r) => sum + (r.months[i].amount ?? 0), 0) : null;
   const heads: [string, React.ReactNode, number?][] = [
     ['', '계좌'], ['numeric', '이월 원금'], ...visible.map(m => ['numeric', `${m}월`, m] as [string, string, number]),
     // 총 원금에 넣은 마지막 달(올해는 이번 달, 지난해는 12월). 앞으로 올 해는 이월 원금뿐이다.
@@ -120,6 +123,7 @@ export function AssetsView({ data, busy, perform, onError, history }: Props) {
     </section>
     {(edit === 'new' || editing) && <div className="edit-panel balance-panel"><h3>{editing ? `${editing.name} 수정` : '새 계좌'}</h3>
       <AccountForm key={edit} account={editing} data={data} today={today.iso.slice(0, 7)} busy={busy} onError={onError} onCancel={() => setEdit(null)}
+        onCloseAccount={editing && (async fields => { if (await perform({ type: 'account-close', id: editing.id, ...fields })) setEdit(null); })}
         onSave={async fields => { if (await perform({ type: 'account-save', id: editing?.id, ...fields })) setEdit(null); }}
         onDelete={editing && (async () => {
           if (confirm(`“${editing.name}” 계좌와 지금까지 적은 평가금액 기록을 삭제할까요? 월별 표의 저축 줄은 그대로입니다.`) && await perform({ type: 'account-delete', id: editing.id })) setEdit(null);
@@ -143,13 +147,13 @@ export function AssetsView({ data, busy, perform, onError, history }: Props) {
         {heads.map(([className, label, month], col) => <th key={col} scope="col" className={className || undefined} data-month={month}
           style={className.includes('stick-r') ? pin(col) : columns.width(col)}>{label}{columns.handle(col)}</th>)}
       </tr></thead>
-      <tbody>{rows.map((r, row) => <tr key={r.account.id} className={edit === r.account.id ? 'editing' : undefined}>
+      <tbody>{rows.map((r, row) => <tr key={r.account.id} className={[edit === r.account.id ? 'editing' : '', r.closed ? 'closed' : ''].join(' ').trim() || undefined}>
         {[
           <th scope="row"><button className="line-name" disabled={busy} aria-label={`${r.account.name} 계좌 수정`} onClick={() => setEdit(edit === r.account.id ? null : r.account.id)}>{r.account.name}</button>
-            <small>{accountKinds[r.account.kind]}{r.lockedUntil && ` · 묶임 ~${r.lockedUntil.slice(0, 7).replace('-', '.')}`}</small></th>,
-          <td className="numeric"><MoneyCell value={r.opening || null} label={`${r.account.name} 이월 원금`} disabled={busy} onError={onError}
+            <small>{r.closed ? `해지 ${shortDate(r.closed.on)}${r.closed.note ? ` · → ${r.closed.note}` : ''}` : `${accountKinds[r.account.kind]}${r.lockedUntil ? ` · 묶임 ~${r.lockedUntil.slice(0, 7).replace('-', '.')}` : ''}`}</small></th>,
+          <td className="numeric"><MoneyCell value={r.opening || null} label={`${r.account.name} 이월 원금`} disabled={busy || !!r.closed} onError={onError}
             onSave={amount => { void saveOpening(r, amount ?? 0); }} /></td>,
-          ...r.months.map(m => m.before ? <td className="numeric before" />
+          ...r.months.map(m => m.before || m.closed ? <td className="numeric before" />
             : isDirect(r.account)
             // 직접 입력 계좌: 달 칸에 바로 적는다. 앞 달에서 이어 쓴 값은 흐리게 보인다.
             ? <td className={`numeric${m.carried ? ' carried' : ''}${m.future ? ' future' : ''}`}><MoneyCell value={m.amount} signed label={`${r.account.name} ${m.month}월 입금`} disabled={busy} onError={onError}
@@ -160,17 +164,21 @@ export function AssetsView({ data, busy, perform, onError, history }: Props) {
                   onSave={amount => { void perform({ type: 'amount', id: m.lineId!, amount }); }} /></td>
               : <td className={`numeric${m.future ? ' future' : m.amount !== null && m.amount < 0 ? ' minus' : ''}`} title={m.amount === null ? undefined : '저축 줄이 둘 이상이라 월별 표에서 고칩니다'}>{m.amount === null ? '' : won(m.amount)}</td>),
           <td className="numeric stick-r r2" style={pin(totalCol)}>{won(r.principal)}</td>,
-          <td className="numeric asset-value asset-key stick-r r1" style={pin(valueCol)}>{r.account.kind === 'invest'
+          <td className="numeric asset-value asset-key stick-r r1" style={pin(valueCol)}>{r.closed
+            // 해지한 계좌: 평가금액 대신 받은 금액
+            ? <span className="muted">{won(r.closed.amount)}<small>해지하고 받은 돈</small></span>
+            : r.account.kind === 'invest'
             ? <><MoneyCell value={r.value} label={`${r.account.name} 평가금액`} disabled={busy || !thisYear} onError={onError}
                 onSave={amount => { void perform({ type: 'balance', id: r.account.id, year: today.year, month: today.month, amount, checked_on: amount === null ? null : today.iso }); }} />
               <small>{checked(r.checkedOn, data.year) ?? '적은 값 없음'}</small></>
             : <span className="muted">{won(r.principal)}<small>원금과 같음</small></span>}</td>,
-          <td className={`numeric stick-r r0${trend(r.change)}`} style={pin(count - 1)}>
-            {r.change === null ? <span className="muted">—</span> : <>{signed(r.change)}<small>{rate(r.change, r.principal).trim()}</small></>}</td>,
+          <td className={`numeric stick-r r0${trend(r.closed ? r.closed.profit : r.change)}`} style={pin(count - 1)}>
+            {r.closed ? <>{signed(r.closed.profit)}<small>최종</small></>
+              : r.change === null ? <span className="muted">—</span> : <>{signed(r.change)}<small>{rate(r.change, r.principal).trim()}</small></>}</td>,
         ].map((cell, col) => tools.cell(row, col, cell))}
       </tr>)}</tbody>
       <tfoot><tr>
-        <th scope="row">합계</th><td className="numeric">{won(rows.reduce((sum, r) => sum + r.opening, 0))}</td>
+        <th scope="row">합계</th><td className="numeric">{won(openRows.reduce((sum, r) => sum + r.opening, 0))}</td>
         {visible.map((m, i) => { const sum = monthSum(i); return <td key={m} className={`numeric${rows[0]?.months[i].future ? ' future' : ''}`}>{sum === null ? '' : won(sum)}</td>; })}
         <td className="numeric stick-r r2" style={pin(totalCol)}>{won(totals.principal)}</td><td className="numeric asset-key stick-r r1" style={pin(valueCol)}>{won(totals.allValue)}</td>
         <td className={`numeric stick-r r0${trend(totals.change)}`} style={pin(count - 1)}>{signed(totals.change)}</td>
@@ -182,11 +190,12 @@ export function AssetsView({ data, busy, perform, onError, history }: Props) {
     <h3 className="asset-subhead">묶인 돈</h3>
     {locked.length ? <div className="table-scroll"><table className="balance-table locked-table">
       <thead><tr><th scope="col">이름</th><th scope="col" className="numeric">금액</th><th scope="col" className="numeric">돌려받는 날</th></tr></thead>
-      <tbody>{locked.map(a => <tr key={a.id} className={edit === a.id ? 'editing' : undefined}>
-        <th scope="row"><button className="line-name" disabled={busy} aria-label={`${a.name} 수정`} onClick={() => setEdit(edit === a.id ? null : a.id)}>{a.name}</button></th>
+      <tbody>{locked.map(a => <tr key={a.id} className={[edit === a.id ? 'editing' : '', a.closed_on ? 'closed' : ''].join(' ').trim() || undefined}>
+        <th scope="row"><button className="line-name" disabled={busy} aria-label={`${a.name} 수정`} onClick={() => setEdit(edit === a.id ? null : a.id)}>{a.name}</button>
+          {a.closed_on && <small>돌려받음 {shortDate(a.closed_on)} · {won(a.closed_amount ?? 0)}{a.closed_note ? ` · → ${a.closed_note}` : ''}</small>}</th>
         <td className="numeric">{won(a.principal)}</td><td className="numeric">{a.due_on ?? <span className="muted">—</span>}</td>
       </tr>)}</tbody>
-      <tfoot><tr><th scope="row">합계</th><td className="numeric">{won(locked.reduce((sum, a) => sum + a.principal, 0))}</td><td /></tr></tfoot>
+      <tfoot><tr><th scope="row">합계</th><td className="numeric">{won(locked.filter(a => !a.closed_on).reduce((sum, a) => sum + a.principal, 0))}</td><td /></tr></tfoot>
     </table></div>
       : <p className="muted">보증금처럼 당장 꺼낼 수 없는 돈은 [+ 계좌 추가]에서 종류를 ‘묶인 돈’으로 고르면 여기에 모이고 총 자산에 더해집니다.</p>}
     {chart.length > 1 && <SavingsChart rows={chart} title="넣은 원금 누적" label="월별 넣은 원금 누적 그래프" name="원금" />}
@@ -194,10 +203,36 @@ export function AssetsView({ data, busy, perform, onError, history }: Props) {
 }
 
 const kinds = Object.keys(accountKinds) as Account['kind'][];
-function AccountForm({ account, data, today, busy, onSave, onCancel, onDelete, onError }: {
+const shortDate = (iso: string) => `${Number(iso.slice(5, 7))}/${Number(iso.slice(8, 10))}`;
+
+// 해지: 해지한 날·받은 금액·어디로 보냈는지(어떻게 썼는지)를 남긴다. 해지한 계좌는 [해지 취소]로 되돌린다.
+// 계좌 수정 form 안에 있지만 따로 보내므로 버튼은 모두 type="button"이다.
+function CloseAccount({ account, busy, onError, onClose }: { account: Account; busy: boolean; onError: (message: string) => void;
+  onClose: (fields: { closed_on: string | null; closed_amount: number | null; closed_note: string | null }) => void }) {
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+  const [on, setOn] = useState(today); const [amount, setAmount] = useState(''); const [note, setNote] = useState('');
+  if (account.closed_on) return <div className="close-account"><h4>해지함</h4>
+    <p className="muted">{account.closed_on} · 받은 돈 {won(account.closed_amount ?? 0)}원{account.closed_note ? ` · → ${account.closed_note}` : ''}</p>
+    <div className="actions"><button type="button" disabled={busy} onClick={() => onClose({ closed_on: null, closed_amount: null, closed_note: null })}>해지 취소</button></div></div>;
+  return <div className="close-account"><h4>해지하기</h4>
+    <div className="form-grid">
+      <label>해지한 날<input type="date" value={on} onChange={e => setOn(e.target.value)} /></label>
+      <label>{account.kind === 'reserved' ? '돌려받은 금액' : '받은 금액'}<input inputMode="numeric" value={amount} placeholder="0" onChange={e => setAmount(e.target.value)} /></label>
+      <label className="close-note">어디로 보냈는지 · 어떻게 썼는지<input value={note} maxLength={500} placeholder="예: 생활비 통장으로, 전세 대출 상환" onChange={e => setNote(e.target.value)} /></label>
+    </div>
+    <div className="actions"><button type="button" className="danger" disabled={busy} onClick={() => {
+      try {
+        const received = parseMoney(amount);
+        if (!on || received === null) { onError('해지한 날과 받은 금액을 적으세요.'); return; }
+        if (confirm(`“${account.name}”을(를) ${on}에 해지로 기록할까요? 합계에서 빠지고 표 아래에 회색으로 남습니다.`)) onClose({ closed_on: on, closed_amount: received, closed_note: note.trim() || null });
+      } catch (error) { onError(error instanceof Error ? error.message : '받은 금액을 확인하세요.'); }
+    }}>해지</button></div></div>;
+}
+function AccountForm({ account, data, today, busy, onSave, onCancel, onDelete, onError, onCloseAccount }: {
   account?: Account; data: Snapshot; today: string; busy: boolean;
   onSave: (fields: { name: string; kind: Account['kind']; principal: number; due_on: string | null; series: string[]; start_month: string | null }) => void;
   onCancel: () => void; onDelete?: () => void; onError: (message: string) => void;
+  onCloseAccount?: (fields: { closed_on: string | null; closed_amount: number | null; closed_note: string | null }) => void;
 }) {
   const [kind, setKind] = useState<Account['kind']>(account?.kind ?? 'invest');
   const mine = new Set(account ? JSON.parse(account.series) as string[] : []);
@@ -229,5 +264,6 @@ function AccountForm({ account, data, today, busy, onSave, onCancel, onDelete, o
       <small className="muted">저축 줄을 고르지 않으면 자산 표의 달 칸에 직접 적습니다(다른 사람이 보내 주는 돈처럼 월별 표에 없는 돈). 적은 금액은 뒤 달로 이어지고, 그만 들어오면 0을 적습니다.<br />기록 시작 달부터 이 줄들의 금액을 원금에 더합니다. 시작 원금은 그 달 전까지 넣어 둔 원금입니다(시작 달을 비우면 처음부터 셉니다).</small>
     </fieldset>}
     <div className="actions"><button className="primary" disabled={busy}>저장</button><button type="button" onClick={onCancel}>취소</button>{onDelete && <button className="danger" type="button" disabled={busy} onClick={onDelete}>삭제</button>}</div>
+    {account && onCloseAccount && <CloseAccount account={account} busy={busy} onError={onError} onClose={onCloseAccount} />}
   </form>;
 }

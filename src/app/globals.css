@@ -328,6 +328,14 @@ label input, label select { width: 100%; min-width: 0; height: 32px; border: 1px
 .asset-table thead tr > :first-child { background: var(--ink); }
 .asset-table th[scope="row"] small { display: block; font-size: 10px; line-height: 1.1; color: var(--slate); }
 .asset-table td.carried .money-input { color: var(--slate); }
+/* 해지한 계좌: 흐리게, 맨 아래. 이름 아래에 해지한 날·어디로 보냈는지 */
+.asset-table tr.closed > *, .locked-table tr.closed > * { color: var(--dust); }
+.asset-table tr.closed .line-name, .locked-table tr.closed .line-name { color: var(--slate); }
+.locked-table th[scope="row"] small { display: block; font-size: 10px; line-height: 1.1; color: var(--slate); }
+.close-account { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--grid); }
+.close-account h4 { margin: 0 0 8px; font-size: 13px; }
+.close-account p { margin: 0 0 8px; font-size: 12px; }
+.close-account .close-note { grid-column: span 2; }
 /* 기록 시작 달 전 달: 빗금 없이 옅은 바탕으로 비워 둔다 */
 .asset-table td.before { background: var(--canvas); }
 /* 아직 오지 않은 달: 회색, 총 원금에 넣지 않는다 */

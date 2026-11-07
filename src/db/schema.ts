@@ -61,6 +61,8 @@ export const accounts = sqliteTable('accounts', {
   principal: integer().notNull().default(0), due_on: text(), series: text().notNull().default('[]'),
   // 기록 시작 달(YYYY-MM, migrations/0008). 이 달부터 저축 줄 금액을 원금에 더한다. 비어 있으면 처음부터.
   start_month: text(),
+  // 해지(migrations/0010): 해지한 날, 받은 금액, 어디로 보냈는지·어떻게 썼는지 메모. 해지 전이면 모두 비어 있다.
+  closed_on: text(), closed_amount: integer(), closed_note: text(),
 });
 export const accountBalances = sqliteTable('account_balances', {
   id: text().primaryKey(), account_id: text().notNull().references(() => accounts.id, { onDelete: 'cascade' }),
