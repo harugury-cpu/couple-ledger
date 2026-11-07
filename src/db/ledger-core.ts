@@ -190,7 +190,7 @@ export class LedgerCore {
       uses, years, specials,
       matchRules, cellMerges,
       transfers: virtual ? [...transfers, ...virtual.transfers] : transfers,
-      accounts, balances, assetCarry: await this.assetCarry(accounts, year), futureSeries: [...new Set(future.map(l => l.series_id))],
+      accounts, balances, deposits: await this.db.select().from(s.accountDeposits), lastMonth: Math.max(0, ...allMonths.map(m => m.year * 12 + m.month)), assetCarry: await this.assetCarry(accounts, year), futureSeries: [...new Set(future.map(l => l.series_id))],
     };
   }
 
@@ -810,6 +810,17 @@ export class LedgerCore {
     // 잔액 기록은 계좌와 함께 지워진다(ON DELETE CASCADE).
     await this.store.batch([toStatement(this.db.delete(s.accounts).where(eq(s.accounts.id, id)))]);
   }
+  // 직접 입력 계좌의 그 달 입금. 비우면 그 달 기록을 지우고 앞 달 값이 이어진다.
+  async setDeposit(id: string, year: number, month: number, amount: number | null) {
+    yearValue.parse(year); monthValue.parse(month); if (amount !== null) signedMoney.parse(amount); await this.init();
+    const [account] = await this.db.select().from(s.accounts).where(eq(s.accounts.id, id));
+    if (!account) throw new InputError('계좌를 찾을 수 없습니다.');
+    if (account.kind === 'reserved' || (JSON.parse(account.series) as string[]).length) throw new InputError('월별 표 저축 줄을 연결한 계좌는 월별 표에서 금액을 고칩니다.');
+    const at = and(eq(s.accountDeposits.account_id, id), eq(s.accountDeposits.year, year), eq(s.accountDeposits.month, month));
+    if (amount === null) { await this.store.batch([toStatement(this.db.delete(s.accountDeposits).where(at))]); return; }
+    await this.store.batch([toStatement(this.db.insert(s.accountDeposits).values({ id: crypto.randomUUID(), account_id: id, year, month, amount })
+      .onConflictDoUpdate({ target: [s.accountDeposits.account_id, s.accountDeposits.year, s.accountDeposits.month], set: { amount } }))]);
+  }
   // 평가금액: 그 달의 값 하나와 확인한 날을 남긴다(같은 달에 다시 적으면 덮어쓴다).
   async setBalance(id: string, year: number, month: number, amount: number | null, checkedOn: string | null = null) {
     yearValue.parse(year); monthValue.parse(month); if (amount !== null) signedMoney.parse(amount); if (checkedOn) isoDate.parse(checkedOn); await this.init();
@@ -827,7 +838,7 @@ export class LedgerCore {
       ledger_months: s.ledgerMonths, month_lines: s.monthLines, special_expenses: s.specialExpenses,
       entries: s.entries, budget_adjustments: s.budgetAdjustments, saving_years: s.savingYears,
       saving_uses: s.savingUses, match_rules: s.matchRules, transfers: s.transfers,
-      accounts: s.accounts, account_balances: s.accountBalances, notification_events: s.notificationEvents,
+      accounts: s.accounts, account_balances: s.accountBalances, account_deposits: s.accountDeposits, notification_events: s.notificationEvents,
       cell_merges: s.cellMerges,
     };
     // UNION ALL 한 조회는 모든 표를 같은 SQLite 읽기 시점으로 본다.
@@ -860,13 +871,13 @@ export class LedgerCore {
     await this.store.batch([
       { sql: 'DELETE FROM edit_operations', params: [] },
       toStatement(this.db.delete(s.cellMerges)),
-      ...[s.notificationEvents, s.accountBalances, s.accounts, s.matchRules, s.transfers, s.entries, s.budgetAdjustments, s.savingUses, s.specialExpenses,
+      ...[s.notificationEvents, s.accountDeposits, s.accountBalances, s.accounts, s.matchRules, s.transfers, s.entries, s.budgetAdjustments, s.savingUses, s.specialExpenses,
         s.monthLines, s.ledgerMonths, s.savingYears, s.invites, s.paymentMethods, s.categories, s.members].map(table => toStatement(this.db.delete(table))),
       ...this.insert(s.members, d.members), ...this.insert(s.invites, d.invites), ...this.insert(s.categories, d.categories),
       ...this.insert(s.paymentMethods, d.payment_methods), ...this.insert(s.ledgerMonths, d.ledger_months), ...this.insert(s.monthLines, d.month_lines),
       ...this.insert(s.specialExpenses, d.special_expenses), ...this.insert(s.entries, d.entries), ...this.insert(s.budgetAdjustments, d.budget_adjustments),
       ...this.insert(s.savingYears, d.saving_years), ...this.insert(s.savingUses, d.saving_uses), ...this.insert(s.matchRules, d.match_rules),
-      ...this.insert(s.transfers, d.transfers), ...this.insert(s.accounts, d.accounts), ...this.insert(s.accountBalances, d.account_balances),
+      ...this.insert(s.transfers, d.transfers), ...this.insert(s.accounts, d.accounts), ...this.insert(s.accountBalances, d.account_balances), ...this.insert(s.accountDeposits, d.account_deposits),
       ...this.insert(s.notificationEvents, d.notification_events),
       ...this.insert(s.cellMerges, d.cell_merges),
     ]);

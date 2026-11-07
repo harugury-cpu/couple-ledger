@@ -12,7 +12,7 @@ const make = () => { const l = new Ledger(':memory:', { today: () => now }); ope
 const action = (l: Ledger, command: unknown) => runLedgerAction(l, commandSchema.parse(command), crypto.randomUUID());
 const view = async (l: Ledger, year = 2026) => {
   const s = await l.snapshot(year, 11);
-  return assetRows(s.accounts, computeLines(s.lines, s.entries, s.adjustments), s.balances, s.assetCarry, year);
+  return assetRows(s.accounts, computeLines(s.lines, s.entries, s.adjustments), s.balances, s.assetCarry, year, s.deposits, s.lastMonth);
 };
 
 async function setup() {
@@ -94,4 +94,33 @@ it('기록 시작 달 전 달은 표에 나오지 않고 원금에도 더하지 
   expect(both.rows.find(r => r.account.name === '토스증권')!.months.slice(0, 10).every(m => m.amount === null)).toBe(true);
   // 다음 해 이월 원금은 시작 달부터 센다(2025년 12월 금액은 넣지 않는다).
   expect((await view(l, 2027)).rows.find(r => r.account.name === '토스증권')!.opening).toBe(4_498_939 + 200_000);
+});
+
+it('저축 줄을 연결하지 않은 계좌는 달 칸에 직접 적고, 적은 값이 만들어진 마지막 달까지 이어진다', async () => {
+  const { l, series } = await setup(); // 2026년 12월까지 만들어져 있다
+  await action(l, { type: 'account-save', name: '용돈 적립', kind: 'ready', target: null, principal: 0, start_month: '2026-10', series: [] });
+  const [acc] = (await l.snapshot(2026, 11)).accounts;
+  await action(l, { type: 'deposit', id: acc.id, year: 2026, month: 10, amount: 100_000 });
+  let row = (await view(l)).rows[0];
+  expect(row.months.map(m => [m.month, m.amount, m.carried])).toEqual([[10, 100_000, false], [11, 100_000, true], [12, 100_000, true]]);
+  expect(row.principal).toBe(300_000);
+  // 12월만 바꾸면 그 달부터 그 값, 0을 적으면 그 뒤로 0
+  const done = await action(l, { type: 'deposit', id: acc.id, year: 2026, month: 12, amount: 0 });
+  row = (await view(l)).rows[0];
+  expect(row.months.map(m => m.amount)).toEqual([100_000, 100_000, 0]);
+  await applyEditHistory(l, done.history_id!, 'undo');
+  expect((await view(l)).rows[0].principal).toBe(300_000);
+  // 다음 해 이월 원금은 지난해 이어 쓴 달까지 더한다. 아직 만들지 않은 달(2027년)은 이어 쓰지 않는다.
+  const next = (await view(l, 2027)).rows[0];
+  expect(next.opening).toBe(300_000);
+  expect(next.months.every(m => m.amount === null)).toBe(true);
+  // 저축 줄을 연결한 계좌는 직접 적을 수 없다.
+  await action(l, { type: 'account-save', name: '토스', kind: 'invest', target: null, principal: 0, series: [series[0]] });
+  const toss = (await l.snapshot(2026, 11)).accounts.find(a => a.name === '토스')!;
+  await expect(action(l, { type: 'deposit', id: toss.id, year: 2026, month: 11, amount: 1 })).rejects.toThrow('월별 표');
+  // 백업에 입금 기록이 남고 그대로 복원된다.
+  const archive = await l.exportArchive();
+  expect(archive.data.account_deposits).toHaveLength(1);
+  const copy = make(); await copy.importArchive(archive);
+  expect((await copy.exportArchive()).data.account_deposits).toEqual(archive.data.account_deposits);
 });

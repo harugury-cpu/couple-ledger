@@ -10,7 +10,7 @@ const tables = {
   entries: s.entries, budget_adjustments: s.budgetAdjustments, special_expenses: s.specialExpenses,
   saving_years: s.savingYears, saving_uses: s.savingUses, match_rules: s.matchRules,
   ledger_months: s.ledgerMonths, transfers: s.transfers, accounts: s.accounts,
-  account_balances: s.accountBalances, cell_merges: s.cellMerges,
+  account_balances: s.accountBalances, account_deposits: s.accountDeposits, cell_merges: s.cellMerges,
 };
 type Row = Record<string, string | number | null>;
 type Change = { seq: number; table_name: keyof typeof tables; before_json: string | null; after_json: string | null };
@@ -73,7 +73,7 @@ export async function applyEditHistory(core: LedgerCore, id: string, direction: 
       const dependencies: Record<string, [string, string][]> = {
         month_lines: [['entries', 'month_line_id'], ['budget_adjustments', 'month_line_id'], ['special_expenses', 'from_line_id']],
         special_expenses: [['budget_adjustments', 'special_expense_id'], ['saving_uses', 'special_expense_id']],
-        accounts: [['account_balances', 'account_id']],
+        accounts: [['account_balances', 'account_id'], ['account_deposits', 'account_id']],
       };
       for (const [child, column] of dependencies[change.table] ?? []) writes.push(...guardStatement(`NOT EXISTS(SELECT 1 FROM ${quoted(child)} WHERE ${quoted(column)}=?)`, [from.id]));
       if (change.table === 'month_lines') writes.push(...guardStatement('NOT EXISTS(SELECT 1 FROM cell_merges,json_each(cell_merges.line_ids) WHERE json_each.value=?)', [from.id]));

@@ -29,6 +29,7 @@ export const archiveSchema = z.strictObject({
     accounts: z._default(rows(z.strictObject({ id, name: nameValue, kind: accountKind, target: z.nullable(money), sort,
       principal: z._default(signedMoney, 0), due_on: z._default(z.nullable(isoDate), null), series: z._default(z.string().check(z.maxLength(20000)), '[]'), start_month: z._default(z.nullable(yearMonth), null) })), []),
     account_balances: z._default(rows(z.strictObject({ id, account_id: id, ...ym, amount: signedMoney, checked_on: z._default(z.nullable(isoDate), null) })), []),
+    account_deposits: z._default(rows(z.strictObject({ id, account_id: id, ...ym, amount: signedMoney })), []),
     notification_events: z._default(rows(z.strictObject({
       id, payload: z.string().check(z.maxLength(100000)), transaction_json: z.nullable(z.string().check(z.maxLength(1000))),
       fingerprint: z.string().check(z.length(64)), approval_key: z.nullable(z.string().check(z.length(64))),
@@ -69,6 +70,8 @@ export function validateArchive(input: unknown): Archive {
   unique(d.accounts, r => r.name, '계좌 이름'); unique(d.account_balances, r => `${r.account_id}-${r.year}-${r.month}`, '계좌 잔액');
   const accountIds = new Set(d.accounts.map(a => a.id));
   if (d.account_balances.some(b => !accountIds.has(b.account_id))) throw new InputError('잔액 기록의 계좌를 찾을 수 없습니다.');
+  unique(d.account_deposits, r => `${r.account_id}-${r.year}-${r.month}`, '계좌 입금');
+  if (d.account_deposits.some(b => !accountIds.has(b.account_id))) throw new InputError('입금 기록의 계좌를 찾을 수 없습니다.');
   if (d.members.filter(m => m.role === 'owner').length !== 1) throw new InputError('가계부 주인 멤버가 한 명이어야 합니다.');
   const members = new Set(d.members.map(m => m.id)); const cats = new Set(d.categories.map(c => c.id)); const methods = new Set(d.payment_methods.map(m => m.id));
   const lines = new Map(d.month_lines.map(l => [l.id, l])); const specials = new Map(d.special_expenses.map(e => [e.id, e]));

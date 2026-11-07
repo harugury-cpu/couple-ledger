@@ -69,6 +69,13 @@ export const accountBalances = sqliteTable('account_balances', {
   checked_on: text(),
 }, (t) => [uniqueIndex('account_balance_unique').on(t.account_id, t.year, t.month)]);
 
+// 직접 입력 계좌의 달별 입금(migrations/0009). 적은 달만 남기고, 빈 달은 화면에서 앞 달 값을 이어 쓴다.
+export const accountDeposits = sqliteTable('account_deposits', {
+  id: text().primaryKey(), account_id: text().notNull().references(() => accounts.id, { onDelete: 'cascade' }),
+  year: integer().notNull(), month: integer().notNull(), amount: integer().notNull(),
+}, (t) => [uniqueIndex('account_deposit_unique').on(t.account_id, t.year, t.month)]);
+export type AccountDeposit = typeof accountDeposits.$inferSelect;
+
 export type MonthLine = typeof monthLines.$inferSelect;
 export type LedgerMonth = typeof ledgerMonths.$inferSelect;
 export type Account = typeof accounts.$inferSelect;

@@ -39,7 +39,8 @@ export function AssetsView({ data, busy, perform, onError, history }: Props) {
   const [edit, setEdit] = useState<string | null>(null);
   const today = seoulToday();
   const phone = usePhone(); const touch = useTouch();
-  const { rows, locked, visible, totals, history: chart } = assetRows(data.accounts, computeLines(data.lines, data.entries, data.adjustments), data.balances, data.assetCarry, data.year);
+  const { rows, locked, visible, isDirect, totals, history: chart } = assetRows(data.accounts, computeLines(data.lines, data.entries, data.adjustments), data.balances, data.assetCarry, data.year,
+    data.deposits, data.lastMonth || Infinity);
   const editing = edit && edit !== 'new' ? data.accounts.find(a => a.id === edit) : undefined;
   const thisYear = data.year === today.year;
   // 열: 계좌 · 이월 원금 · 보이는 달들 · 총 원금 · 평가금액 · 증감
@@ -53,11 +54,12 @@ export function AssetsView({ data, busy, perform, onError, history }: Props) {
   ]);
   const tools = useSheetTools({ year: data.year, month: today.month, lines: rows.map(r => ({ id: r.account.id, section: 'saving' as const })), values, merges: [], automatic: [],
     disabled: busy, touch, perform, onError, columns: count, mergeable: false,
-    // 붙여넣기는 투자 계좌의 평가금액 칸에만 된다(오늘 확인한 값으로 남는다).
+    // 붙여넣기는 직접 적는 칸에만 된다: 투자 계좌의 평가금액(오늘 확인한 값), 직접 입력 계좌의 달 칸.
     paste: async changes => {
       const writes = changes.map(c => {
         const row = rows.find(r => r.account.id === c.id)!;
-        if (c.col !== valueCol || row.account.kind !== 'invest' || !thisYear) throw new Error('올해 투자 계좌의 평가금액 칸에만 붙여넣을 수 있습니다.');
+        if (c.col >= 2 && c.col < totalCol && isDirect(row.account)) return { type: 'deposit', id: c.id, year: data.year, month: visible[c.col - 2], amount: parseMoney(c.value, true) };
+        if (c.col !== valueCol || row.account.kind !== 'invest' || !thisYear) throw new Error('평가금액 칸이나 직접 입력 계좌의 달 칸에만 붙여넣을 수 있습니다.');
         return { type: 'balance', id: c.id, year: today.year, month: today.month, amount: parseMoney(c.value, true), checked_on: today.iso };
       });
       for (const command of writes) if (!await perform(command)) return false;
@@ -125,7 +127,11 @@ export function AssetsView({ data, busy, perform, onError, history }: Props) {
           <th scope="row"><button className="line-name" disabled={busy} aria-label={`${r.account.name} 계좌 수정`} onClick={() => setEdit(edit === r.account.id ? null : r.account.id)}>{r.account.name}</button>
             <small>{accountKinds[r.account.kind]}</small></th>,
           <td className="numeric">{r.opening ? won(r.opening) : ''}</td>,
-          ...r.months.map(m => <td className={`numeric${m.amount !== null && m.amount < 0 ? ' minus' : ''}`}>{m.amount === null ? '' : won(m.amount)}</td>),
+          ...r.months.map(m => isDirect(r.account)
+            // 직접 입력 계좌: 달 칸에 바로 적는다. 앞 달에서 이어 쓴 값은 흐리게 보인다.
+            ? <td className={`numeric${m.carried ? ' carried' : ''}`}><MoneyCell value={m.amount} signed label={`${r.account.name} ${m.month}월 입금`} disabled={busy} onError={onError}
+                onSave={amount => { void perform({ type: 'deposit', id: r.account.id, year: data.year, month: m.month, amount }); }} /></td>
+            : <td className={`numeric${m.amount !== null && m.amount < 0 ? ' minus' : ''}`}>{m.amount === null ? '' : won(m.amount)}</td>),
           <td className="numeric asset-total stick-r r2" style={pin(totalCol)}>{won(r.principal)}</td>,
           <td className="numeric asset-value stick-r r1" style={pin(valueCol)}>{r.account.kind === 'invest'
             ? <><MoneyCell value={r.value} label={`${r.account.name} 평가금액`} disabled={busy || !thisYear} onError={onError}
@@ -192,7 +198,7 @@ function AccountForm({ account, data, today, busy, onSave, onCancel, onDelete, o
         <input type="checkbox" name="series" value={l.series_id} defaultChecked={mine.has(l.series_id)} disabled={owner.has(l.series_id)} />
         {l.name}{twice(l.name) && <small> · 예산 {won(l.budget)}</small>}{owner.has(l.series_id) && <small> · {owner.get(l.series_id)}에 연결됨</small>}
       </label>) : <p className="muted">{data.year}년 월별 표에 저축 줄이 없습니다.</p>}
-      <small className="muted">기록 시작 달부터 이 줄들의 금액을 원금에 더합니다. 시작 원금은 그 달 전까지 넣어 둔 원금입니다(시작 달을 비우면 처음부터 셉니다).</small>
+      <small className="muted">저축 줄을 고르지 않으면 자산 표의 달 칸에 직접 적습니다(다른 사람이 보내 주는 돈처럼 월별 표에 없는 돈). 적은 금액은 뒤 달로 이어지고, 그만 들어오면 0을 적습니다.<br />기록 시작 달부터 이 줄들의 금액을 원금에 더합니다. 시작 원금은 그 달 전까지 넣어 둔 원금입니다(시작 달을 비우면 처음부터 셉니다).</small>
     </fieldset>}
     <div className="actions"><button className="primary" disabled={busy}>저장</button><button type="button" onClick={onCancel}>취소</button>{onDelete && <button className="danger" type="button" disabled={busy} onClick={onDelete}>삭제</button>}</div>
   </form>;

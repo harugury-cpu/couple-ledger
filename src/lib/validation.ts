@@ -79,6 +79,7 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('account-save'), name: nameValue, kind: accountKind, target: z._default(z.nullable(money), null), id: z.optional(z.string()),
     principal: z._default(money, 0), due_on: z._default(z.nullable(isoDate), null), start_month: z._default(z.nullable(yearMonth), null), series: z._default(z.array(z.string().check(z.minLength(1), z.maxLength(128))).check(z.maxLength(100)), []) }),
   z.object({ type: z.literal('account-delete'), id: z.string() }),
+  z.object({ type: z.literal('deposit'), id: z.string(), year: yearValue, month: monthValue, amount: z.nullable(signedMoney) }),
   z.object({ type: z.literal('balance'), id: z.string(), year: yearValue, month: monthValue, amount: z.nullable(signedMoney), checked_on: z._default(z.nullable(isoDate), null) }),
 ]);
 const capturedItem = z.strictObject({ key: z.string().check(z.minLength(1), z.maxLength(1000)), lineId: z.nullable(z.string()), amount: signedMoney,

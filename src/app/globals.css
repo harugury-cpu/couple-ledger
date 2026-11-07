@@ -324,7 +324,7 @@ label input, label select { width: 100%; min-width: 0; height: 32px; border: 1px
 .asset-table tr > :first-child { position: sticky; left: 0; z-index: 1; min-width: 132px; background: var(--white); }
 .asset-table thead tr > :first-child { background: var(--ink); }
 .asset-table th[scope="row"] small { display: block; font-size: 10px; line-height: 1.1; color: var(--slate); }
-.asset-table td.future { color: var(--dust); }
+.asset-table td.carried .money-input { color: var(--slate); }
 .asset-table .asset-total { background: var(--total); font-weight: 500; }
 .asset-table thead .asset-total { background: var(--ink); }
 .asset-table td small, .locked-table td small { display: block; font-size: 10px; line-height: 1.1; color: var(--slate); }
